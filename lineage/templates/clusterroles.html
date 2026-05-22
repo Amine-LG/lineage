@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}ClusterRoles{% endblock %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles" class="active">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+{% if not crs_visible %}
+<section>
+  <h1>ClusterRoles</h1>
+  <div class="banner banner-warn">
+    <strong>ClusterRoles not readable.</strong> The current session's token
+    cannot <code>list clusterroles</code>, so Lineage has nothing to show
+    on this page. <a href="/setup#fetch-errors">See the resource-read
+    errors</a> on /setup. Other pages still render whatever data is visible.
+  </div>
+</section>
+{% else %}
+
+<section id="clusterroles-list">
+  <h1>ClusterRoles ({{ rows|length }})</h1>
+  <p class="lede">Every ClusterRole the current session can read, sorted by visible binding count. Roles with zero bindings may be unused, may be installed for future/operator-managed use, or — under a limited view — may be bound by ClusterRoleBindings the current user cannot read.</p>
+
+  {% if not crbs_visible %}
+  <div class="banner banner-warn">
+    <strong>Bindings not visible.</strong> The current session cannot
+    <code>list clusterrolebindings</code>, so the "Bindings" column reads
+    0 everywhere. The ClusterRoles themselves are accurate; treat the
+    binding counts as <em>"at least this many"</em> rather than authoritative.
+  </div>
+  {% endif %}
+
+  <div class="toolbar">
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#cr-table" data-filter-counter="#cr-counter">
+    <a class="toolbar-link" href="/clusterroles{% if not only_bound %}?bound=1{% endif %}#clusterroles-list">
+      {% if only_bound %}show all{% else %}show only bound{% endif %}
+    </a>
+  </div>
+
+  <p class="dim"><span id="cr-counter">{{ rows|length }}</span> roles</p>
+
+  <table class="dense sortable" id="cr-table">
+    <thead><tr>
+      <th>Name</th><th>Bindings</th><th>Rules</th><th>Verbs (top)</th><th>Resources (top)</th><th>Created</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr {% if r.is_privileged %}class="row-priv"{% endif %}>
+        <td class="mono">
+          <a href="/clusterrole/{{ r.name }}">{{ r.name }}</a>
+          {% if r.is_privileged %}<span class="badge badge-priv">privileged</span>{% endif %}
+          {% if r.aggregated %}<span class="badge badge-info">aggregated</span>{% endif %}
+        </td>
+        <td class="mono" data-sort="{{ r.binding_count }}">{{ r.binding_count }}</td>
+        <td class="mono" data-sort="{{ r.rule_count }}">{{ r.rule_count }}</td>
+        <td class="mono dim">
+          {% for v in r.summary.verbs[:5] %}{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% if r.summary.verbs|length > 5 %} <span class="dim">+{{ r.summary.verbs|length - 5 }}</span>{% endif %}
+        </td>
+        <td class="mono dim">
+          {% for res in r.summary.resources[:4] %}{{ res }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% if r.summary.resources|length > 4 %} <span class="dim">+{{ r.summary.resources|length - 4 }}</span>{% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ r.creation_ts or '' }}" title="{{ r.creation_ts }}">{{ r.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

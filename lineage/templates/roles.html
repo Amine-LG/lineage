@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Roles{% endblock %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles" class="active">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+<section id="roles-list">
+  <h1>Roles ({{ rows|length }} of {{ total }})</h1>
+  <p class="lede">Namespaced <code>Role</code> objects. These define permissions scoped to a single namespace, separate from cluster-wide ClusterRoles.</p>
+
+  {% if not is_admin and total > 0 %}
+  <div class="banner">
+    <strong>Limited view.</strong> Showing every Role the current session can read. Namespaces you created without <code>oc new-project</code> carry no requester annotation and land in <em>Unclassified</em>, so the default <em>All</em> bucket is used to keep them visible. {% if not rbs_visible %}RoleBindings are not visible to this session, so the "Bindings" column reads 0 everywhere — treat it as "at least."{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="?bucket=yours{% if q %}&q={{ q }}{% endif %}#roles-list" class="{% if bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ counts.yours }}</span></a>
+      <a href="?bucket=unknown{% if q %}&q={{ q }}{% endif %}#roles-list" class="{% if bucket == 'unknown' %}active{% endif %}" title="Roles in namespaces that no signal could classify confidently — review">Unclassified <span class="dim mono">{{ counts.unknown }}</span></a>
+      <a href="?bucket=baseline{% if q %}&q={{ q }}{% endif %}#roles-list" class="{% if bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ counts.baseline }}</span></a>
+      <a href="?bucket=all{% if q %}&q={{ q }}{% endif %}#roles-list" class="{% if bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ counts.all }}</span></a>
+    </div>
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#roles-table" data-filter-counter="#roles-counter">
+  </div>
+
+  <p class="dim"><span id="roles-counter">{{ rows|length }}</span> roles</p>
+
+  {% if not rows %}<p class="dim">No roles in this view.</p>
+  {% else %}
+  <table class="dense sortable" id="roles-table">
+    <thead><tr>
+      <th>Name</th><th>Namespace</th><th>Bindings</th><th>Rules</th><th>Verbs (top)</th><th>Created</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr {% if r.baseline_ns %}class="row-baseline"{% endif %}>
+        <td class="mono"><a href="/role/{{ r.namespace }}/{{ r.name }}">{{ r.name }}</a></td>
+        <td class="mono"><a href="/namespace/{{ r.namespace }}">{{ r.namespace }}</a></td>
+        <td class="mono" data-sort="{{ r.binding_count }}">{{ r.binding_count }}</td>
+        <td class="mono" data-sort="{{ r.rule_count }}">{{ r.rule_count }}</td>
+        <td class="mono dim">
+          {% for v in r.summary.verbs[:5] %}{{ v }}{% if not loop.last %}, {% endif %}{% endfor %}
+          {% if r.summary.verbs|length > 5 %} <span class="dim">+{{ r.summary.verbs|length - 5 }}</span>{% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ r.creation_ts or '' }}" title="{{ r.creation_ts }}">{{ r.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

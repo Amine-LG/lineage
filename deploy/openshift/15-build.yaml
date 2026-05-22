@@ -1,0 +1,61 @@
+# Build Lineage **inside** OpenShift.
+#
+# This is the recommended path for enterprise clusters because it does
+# not require exposing the internal image registry or pushing to a local
+# registry. The build still pulls the base images named in Containerfile,
+# then produces an ImageStreamTag the Deployment can resolve directly
+# from the cluster-internal registry with no pull secret.
+#
+# Source mode: `binary`. The developer uploads the repo as a tarball
+# with `oc start-build --from-dir=.`. This works even when the cluster
+# cannot reach an external git host.
+#
+# Strategy: Docker. The build uses the `Containerfile` shipped in the
+# repo. The first stage (`FROM quay.io/openshift/origin-cli:4.19 AS oc`)
+# pulls during the build inside the cluster — make sure the cluster
+# can reach `quay.io/openshift/origin-cli` (every standard OpenShift
+# install already can, since it is the same registry that hosts the
+# cluster's own release images).
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: lineage
+  namespace: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage
+spec:
+  lookupPolicy:
+    local: true
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: lineage
+  namespace: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage
+spec:
+  source:
+    type: Binary
+    binary: {}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: lineage:latest
+  successfulBuildsHistoryLimit: 3
+  failedBuildsHistoryLimit: 3
+  # Build-pod sizing. Requests stay modest for CRC-sized clusters while
+  # limits give `pip install` enough headroom. Check node allocatable
+  # before raising these on small single-node clusters.
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"

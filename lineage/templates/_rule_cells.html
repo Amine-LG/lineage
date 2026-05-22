@@ -1,0 +1,49 @@
+{# Shared cell renderers for the RBAC rules table.
+
+   Goal: stop writing the literal word "core" (or any comma-joined string)
+   into a structured field. Each apiGroup gets its own visual token. The
+   empty string (== Kubernetes "core" API) becomes a small dim chip so it
+   is visually distinct from a real named group. Wildcards in any of the
+   three columns get the priv badge because that's the security signal a
+   reviewer is scanning for. #}
+
+{% macro api_group_cell(rule) -%}
+<td class="mono">
+  {%- set ag = rule.apiGroups or [""] -%}
+  {%- for g in ag -%}
+    {% if g == "*" %}<span class="badge badge-priv" title="wildcard apiGroup">*</span>
+    {%- elif g == "" %}<span class="mono chip dim" title="core API group (apiGroups: [&quot;&quot;])">core</span>
+    {%- else %}<span class="mono chip">{{ g }}</span>
+    {%- endif %}
+  {%- endfor -%}
+  {%- if rule.nonResourceURLs %} <span class="badge" title="non-resource URL rule (e.g. /healthz)">URL</span>{%- endif -%}
+</td>
+{%- endmacro %}
+
+{% macro resources_cell(rule) -%}
+<td class="mono">
+  {%- if rule.resources -%}
+    {%- for res in rule.resources -%}
+      {%- if res == "*" -%}<span class="badge badge-priv" title="wildcard resource">*</span>
+      {%- else -%}{{ res }}
+      {%- endif -%}
+      {%- if not loop.last %}, {% endif -%}
+    {%- endfor -%}
+  {%- endif -%}
+  {%- if rule.nonResourceURLs -%}
+    {%- if rule.resources %}, {% endif -%}
+    <span class="dim">{{ rule.nonResourceURLs|join(", ") }}</span>
+  {%- endif -%}
+</td>
+{%- endmacro %}
+
+{% macro verbs_cell(rule) -%}
+<td class="mono">
+  {%- for v in rule.verbs -%}
+    {%- if v == "*" -%}<span class="badge badge-priv" title="wildcard verb">*</span>
+    {%- else -%}{{ v }}
+    {%- endif -%}
+    {%- if not loop.last %}, {% endif -%}
+  {%- endfor -%}
+</td>
+{%- endmacro %}

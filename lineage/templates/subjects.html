@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Subjects{% endblock %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% block content %}
+
+<section id="subjects-list">
+  <h1>Subjects</h1>
+  <p class="lede">Users, Groups, and ServiceAccounts. Ghosts and latent users are flagged.</p>
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="?bucket=yours{% if kind_filter %}&kind={{ kind_filter }}{% endif %}{% if show_ghosts_only %}&ghost=1{% endif %}{% if show_latent_only %}&latent=1{% endif %}#subjects-list" class="{% if bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ counts.yours }}</span></a>
+      <a href="?bucket=unknown{% if kind_filter %}&kind={{ kind_filter }}{% endif %}{% if show_ghosts_only %}&ghost=1{% endif %}{% if show_latent_only %}&latent=1{% endif %}#subjects-list" class="{% if bucket == 'unknown' %}active{% endif %}" title="Subjects in namespaces that no signal could classify confidently — review">Unclassified <span class="dim mono">{{ counts.unknown }}</span></a>
+      <a href="?bucket=baseline{% if kind_filter %}&kind={{ kind_filter }}{% endif %}{% if show_ghosts_only %}&ghost=1{% endif %}{% if show_latent_only %}&latent=1{% endif %}#subjects-list" class="{% if bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ counts.baseline }}</span></a>
+      <a href="?bucket=all{% if kind_filter %}&kind={{ kind_filter }}{% endif %}{% if show_ghosts_only %}&ghost=1{% endif %}{% if show_latent_only %}&latent=1{% endif %}#subjects-list" class="{% if bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ counts.all }}</span></a>
+    </div>
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#subjects-table" data-filter-counter="#subjects-counter">
+  </div>
+
+  <div class="filterbar inline">
+    <a href="/subjects?bucket={{ bucket }}#subjects-list" class="{% if not kind_filter and not show_ghosts_only and not show_latent_only %}active{% endif %}">All kinds</a>
+    <a href="/subjects?bucket={{ bucket }}&kind=User#subjects-list" class="{% if kind_filter == 'User' and not show_ghosts_only and not show_latent_only %}active{% endif %}">Users</a>
+    <a href="/subjects?bucket={{ bucket }}&kind=Group#subjects-list" class="{% if kind_filter == 'Group' and not show_ghosts_only and not show_latent_only %}active{% endif %}">Groups</a>
+    <a href="/subjects?bucket={{ bucket }}&kind=ServiceAccount#subjects-list" class="{% if kind_filter == 'ServiceAccount' and not show_ghosts_only and not show_latent_only %}active{% endif %}">SAs</a>
+    <span class="dim">·</span>
+    <a href="/subjects?bucket={{ bucket }}&ghost=1#subjects-list" class="{% if show_ghosts_only %}active{% endif %}">Ghosts only</a>
+    <a href="/subjects?bucket={{ bucket }}&latent=1#subjects-list" class="{% if show_latent_only %}active{% endif %}">Latent only</a>
+  </div>
+
+  <p class="dim"><span id="subjects-counter">{{ subjects|length }}</span> subjects</p>
+
+  {% if not subjects %}
+  <p class="dim">No subjects in this view.</p>
+  {% else %}
+  <table class="dense sortable" id="subjects-table">
+    <thead><tr>
+      <th>Name</th><th>Kind</th><th>Namespace</th><th>Origin</th><th>Created</th>
+    </tr></thead>
+    <tbody>
+      {% for s in subjects %}
+      <tr {% if s.ghost %}class="row-ghost"{% elif s.latent or s.stranded %}class="row-warn"{% endif %}>
+        <td class="mono">
+          <a href="/subject/{{ s.kind }}/{{ s.name }}{% if s.namespace %}?namespace={{ s.namespace }}{% endif %}">{{ s.name }}</a>
+          {{ m.badges(s) }}
+          {% if s.resurrectable %}<span class="badge {% if s.severity in ('critical', 'high') %}badge-priv{% else %}badge-warn{% endif %}">resurrectable</span>{% endif %}
+          {% if s.baseline %}<span class="badge badge-sys">baseline</span>{% endif %}
+        </td>
+        <td>{{ k.tag(s.kind) }}</td>
+        <td class="mono">{% if s.namespace %}<a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>{% else %}—{% endif %}</td>
+        <td class="subject-origin">
+          {{ s.origin }}
+          {% if s.kind == "Group" and s.members %}<span class="dim">({{ s.members|length }} members)</span>{% endif %}
+          {% if s.resurrectable %}
+            <span class="dim">{{ s.severity }} · {{ s.grant_count }} surviving grant{{ '' if s.grant_count == 1 else 's' }}</span>
+          {% elif s.ghost %}
+            <span class="dim">bound by <span class="mono">{{ s.bound_by }}</span></span>
+          {% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ s.creationTimestamp or '' }}" title="{{ s.creationTimestamp }}">
+          {{ s.creationTimestamp|humanage }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

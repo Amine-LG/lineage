@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}SCCs{% endblock %}
+{% block content %}
+
+{% if not sccs_visible %}
+<section>
+  <h1>Security Context Constraints</h1>
+  <div class="banner banner-warn">
+    <strong>SCC inventory not visible.</strong> The current session cannot
+    <code>list securitycontextconstraints.security.openshift.io</code>,
+    so Lineage has nothing to show on this page. This is <em>not</em> the
+    same as &ldquo;no SCCs exist.&rdquo; See
+    <a href="/setup#fetch-errors">/setup</a> for the raw read errors.
+    Other pages still render whatever data is visible.
+  </div>
+</section>
+{% else %}
+
+<section>
+  <h1>Security Context Constraints ({{ rows|length }})</h1>
+  <p class="lede">Admission attribution computed from the <code>openshift.io/scc</code> annotation on each running pod. Sorted newest first by <code>creationTimestamp</code>.</p>
+
+  {% if not is_admin %}
+  <div class="banner">
+    <strong>Limited view.</strong> Some SCC-related reads may be partial
+    for non-admin sessions; the rows below reflect what is visible.
+  </div>
+  {% endif %}
+
+  <div class="toolbar">
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#sccs-table">
+  </div>
+
+  <table class="dense sortable" id="sccs-table">
+    <thead><tr>
+      <th>SCC</th><th>Priority</th><th>Privileged</th><th>HostNet</th><th>HostPID</th><th>HostIPC</th><th>RunAsUser</th><th>Pods admitted</th><th>Absent SA grants</th><th>Created</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      {% set absent = absent_by_scc.get(r.scc.name) or [] %}
+      <tr {% if absent and r.is_privileged %}class="row-priv"{% elif absent %}class="row-warn"{% endif %}>
+        <td class="mono"><a href="/scc/{{ r.scc.name }}">{{ r.scc.name }}</a>
+          {% if r.is_privileged %}<span class="badge badge-priv">priv</span>{% endif %}
+        </td>
+        <td class="mono">{{ r.scc.priority if r.scc.priority is not none else "—" }}</td>
+        <td>{{ "yes" if r.scc.allowPrivilegedContainer else "no" }}</td>
+        <td>{{ "yes" if r.scc.allowHostNetwork else "no" }}</td>
+        <td>{{ "yes" if r.scc.allowHostPID else "no" }}</td>
+        <td>{{ "yes" if r.scc.allowHostIPC else "no" }}</td>
+        <td class="mono dim">{{ r.scc.runAsUser.get("type", "—") }}</td>
+        <td class="mono">{{ r.admission_count }}</td>
+        <td class="mono">
+          {% if absent %}<span class="badge badge-warn">{{ absent|length }} absent</span>{% else %}<span class="dim">0</span>{% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ r.scc.creationTimestamp or '' }}" title="{{ r.scc.creationTimestamp }}">{{ r.scc.creationTimestamp|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="dim">An <strong>absent SA grant</strong> is an entry in <code>scc.users</code> of the form <code>system:serviceaccount:&lt;ns&gt;:&lt;name&gt;</code> whose ServiceAccount object is gone. SCC admission still matches the name string the moment the SA is recreated.</p>
+</section>
+{% endif %}
+
+{% endblock %}

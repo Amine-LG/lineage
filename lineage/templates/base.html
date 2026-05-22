@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lineage — {% block title %}{% endblock %}</title>
+  <script>
+    (function () {
+      try {
+        document.documentElement.dataset.theme =
+          localStorage.getItem("lineage-theme") || "dark";
+      } catch (e) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    })();
+  </script>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='lineage.js') }}" defer></script>
+</head>
+<body class="{% if cluster_status.ok and not cluster_status.is_admin %}non-admin{% endif %}">
+<header>
+  <div class="header-row">
+    <a href="/" class="brand">
+      <svg class="logomark" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">
+        <circle cx="6" cy="6" r="2.2" fill="currentColor"/>
+        <circle cx="18" cy="6" r="2.2" fill="currentColor"/>
+        <circle cx="12" cy="18" r="2.2" fill="currentColor"/>
+        <path d="M6 6 L12 18 L18 6 M6 6 L18 6" stroke="currentColor" stroke-width="1.5" fill="none"/>
+      </svg>
+      <span class="brand-text">Lineage</span>
+    </a>
+    <nav>
+      <a href="/" {% if request.path == '/' %}class="active"{% endif %}>Home</a>
+      <a href="/identity-audit" {% if request.path == '/identity-audit' %}class="active"{% endif %}>Identity</a>
+      <a href="/subjects" {% if request.path.startswith('/subject') %}class="active"{% endif %}>Subjects</a>
+      <a href="/namespaces" {% if request.path.startswith('/namespace') %}class="active"{% endif %}>Namespaces</a>
+      <a href="/privileged" {% if request.path in ('/privileged', '/permission-grants', '/cross-namespace', '/who-can', '/aggregated', '/clusterroles', '/roles') or request.path.startswith('/clusterrole') or request.path.startswith('/role/') %}class="active"{% endif %}>Permissions</a>
+      <a href="/sccs" {% if request.path == '/sccs' or request.path.startswith('/scc/') %}class="active"{% endif %}>SCCs</a>
+      <a href="/images" {% if request.path in ('/images', '/image') %}class="active"{% endif %}>Images</a>
+      <a href="/setup" {% if request.path == '/setup' %}class="active"{% endif %}>Setup</a>
+      <form method="post" action="/refresh" class="refresh-form">
+        <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+        <button type="submit" class="refresh-btn" title="Refresh cluster data (cache TTL: {{ cache_ttl_label }})">
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span>Refresh</span>
+        </button>
+      </form>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-pressed="true">
+        <span class="theme-switch" aria-hidden="true"></span>
+        <span class="theme-label">Dark</span>
+      </button>
+    </nav>
+    <div class="meta">read-only · v1.0</div>
+  </div>
+<div class="cluster-bar {% if not cluster_status.ok %}cluster-bar-bad{% elif cluster_status.mock %}cluster-bar-mock{% endif %}">
+  <div class="cluster-bar-inner">
+    {% if cluster_status.ok %}
+      {% if cluster_status.mock %}
+        <span class="dot dot-mock"></span>
+        <span class="cluster-bar-text">mock dataset — set <code>LINEAGE_MOCK=0</code> or unset to read live cluster</span>
+      {% else %}
+        <span class="dot dot-ok"></span>
+        <span class="cluster-bar-text">connected as <code class="mono">{{ cluster_status.user }}</code> ·
+        <code class="mono">{{ cluster_status.server }}</code> ·
+        OpenShift <code class="mono">{{ cluster_status.version }}</code>
+        {% if not cluster_status.is_admin %}
+        · <span class="badge badge-warn">limited view</span>
+        {% endif %}</span>
+        <span class="bar-spacer"></span>
+        <span class="cluster-bar-age dim">
+          {% if refreshed_recently %}refreshed {{ refreshed_recently }}{% else %}data {{ cache_age|ago }}{% endif %}
+        </span>
+      {% endif %}
+    {% else %}
+      <span class="dot dot-bad"></span>
+      <span class="cluster-bar-text">not connected — <code>{{ cluster_status.error }}</code>
+        {% if cluster_status.hint %}<span class="dim"> · {{ cluster_status.hint }}</span>{% endif %}
+      </span>
+      <span class="bar-spacer"></span>
+      <span class="cluster-bar-age dim"><a href="/setup">Setup help →</a></span>
+    {% endif %}
+  </div>
+</div>
+</header>
+<main>{% block content %}{% endblock %}</main>
+<footer>
+  <div class="footer-content">
+    <strong>Lineage doesn't know:</strong>
+    LDAP/OIDC IdPs are not queried directly.
+    Audit logs (last-seen, last-used) unavailable.
+    <a href="/setup">/setup</a> for permissions.
+    <span class="footer-right"><a href="https://github.com/Amine-LG/lineage" target="_blank">GitHub →</a></span>
+  </div>
+</footer>
+</body>
+</html>

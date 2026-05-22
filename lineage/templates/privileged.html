@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Privileged{% endblock %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged" class="active">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+{% if resurrectable_priv %}
+<section class="callout-priv">
+  <h2>Resurrectable ServiceAccount identities ({{ resurrectable_priv|length }})</h2>
+  <p>Critical / high-severity grants — RBAC bindings or SCC user lists — addressed at <code>system:serviceaccount:&lt;ns&gt;:&lt;name&gt;</code> for which the SA is gone. Recreating the name reactivates the privilege. <a href="/identity-audit?severity=critical#resurrectable">All severities →</a></p>
+  {% with items = resurrectable_priv %}{% include "_resurrectable_table.html" %}{% endwith %}
+</section>
+{% endif %}
+
+<section id="privileged-subjects">
+  <h1>Privileged subjects</h1>
+  <p class="lede">Subjects bound to a privileged ClusterRole ({{ privileged_roles|join(", ") }}) or a high-risk SCC use grant. Missing subjects here deserve review because the grant can become usable if the subject is later created or recreated.</p>
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="?bucket=yours#privileged-subjects" class="{% if bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ counts.yours }}</span></a>
+      <a href="?bucket=unknown#privileged-subjects" class="{% if bucket == 'unknown' %}active{% endif %}" title="Privileged bindings whose subject or binding lives in an unclassified namespace — review">Unclassified <span class="dim mono">{{ counts.unknown }}</span></a>
+      <a href="?bucket=baseline#privileged-subjects" class="{% if bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ counts.baseline }}</span></a>
+      <a href="?bucket=all#privileged-subjects" class="{% if bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ counts.all }}</span></a>
+    </div>
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#priv-table" data-filter-counter="#priv-counter">
+  </div>
+
+  <p class="dim"><span id="priv-counter">{{ items|length }}</span> bindings</p>
+
+  {% if not items %}
+  <p class="dim">No privileged bindings in this view.</p>
+  {% else %}
+  <table class="dense sortable" id="priv-table">
+    <thead><tr><th>Role</th><th>Subject</th><th>Binding</th><th>Scope</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for it in items %}
+      <tr {% if it.ghost %}class="row-ghost"{% elif it.stranded or it.latent %}class="row-warn"{% elif it.baseline %}class="row-baseline"{% endif %}>
+        <td><a class="badge badge-priv" href="/clusterrole/{{ it.role }}">{{ it.role }}</a></td>
+        <td>
+          {{ k.tag(it.subject.kind) }}
+          <a class="mono" href="/subject/{{ it.subject.kind }}/{{ it.subject.name }}{% if it.subject.namespace %}?namespace={{ it.subject.namespace }}{% endif %}">{{ it.subject.name }}</a>
+          {% if it.subject.namespace %}<span class="dim mono">({{ it.subject.namespace }})</span>{% endif %}
+          {{ m.badges(it) }}
+        </td>
+        <td class="mono">{{ it.binding.kind }}/{{ it.binding.name }}</td>
+        <td class="mono dim">{% if it.scope and it.scope != "cluster" %}<a href="/namespace/{{ it.scope }}">{{ it.scope }}</a>{% else %}cluster-wide{% endif %}</td>
+        <td class="mono dim" data-sort="{{ it.creation_ts or '' }}" title="{{ it.creation_ts }}">{{ it.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

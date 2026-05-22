@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Setup{% endblock %}
+{% block content %}
+
+<section>
+  <h1>Setup</h1>
+  <p class="lede">Current session, cache, and any permission errors. Install and permissions docs are linked below.</p>
+</section>
+
+<section id="current">
+  <h2>Session</h2>
+  <table class="dense">
+    <tbody>
+      <tr>
+        <th class="dim">Mode</th>
+        <td>
+          {% if current_mode == "mock" %}
+            <span class="badge badge-info">mock</span>
+            <span class="dim">built-in mock dataset · no cluster</span>
+          {% elif current_mode == "in_cluster" %}
+            <span class="badge badge-info">in-cluster</span>
+            <span class="dim">running as the pod's ServiceAccount</span>
+          {% elif current_mode == "local" %}
+            <span class="badge badge-info">local</span>
+            <span class="dim">your laptop's <code>oc</code> login</span>
+          {% else %}
+            <span class="badge badge-warn">disconnected</span>
+            <span class="dim">no cluster context available</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th class="dim">Identity</th>
+        <td class="mono">
+          {% if status.user %}{{ status.user }}{% else %}<span class="dim">—</span>{% endif %}
+          {% if status.is_admin %}<span class="badge badge-info">admin</span>{% elif status.ok %}<span class="badge">non-admin</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th class="dim">Cluster</th>
+        <td class="mono">{% if status.server %}{{ status.server }}{% else %}<span class="dim">—</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <th class="dim">OpenShift</th>
+        <td class="mono">{% if status.version %}{{ status.version }}{% else %}<span class="dim">—</span>{% endif %}</td>
+      </tr>
+      <tr>
+        <th class="dim">Cache</th>
+        <td>
+          {% if cache_age is not none %}<span class="mono">{{ cache_age|ago }}</span>{% else %}<span class="dim">empty</span>{% endif %}
+          · TTL <span class="mono">{{ cache_ttl_label }}</span>
+          · <form method="post" action="/refresh" class="inline-refresh-form">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <button type="submit" class="link-button">force refresh</button>
+            </form>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  {% if status.error %}
+  <div class="banner banner-warn">
+    <strong>Cluster read error.</strong>
+    <span class="mono dim">{{ status.error }}</span>
+    {% if status.hint %} · {{ status.hint }}{% endif %}
+  </div>
+  {% endif %}
+</section>
+
+{% if fetch_errors %}
+<section id="fetch-errors">
+  <h2>Permission gaps</h2>
+  <div class="banner banner-warn">
+    <strong>{{ fetch_errors|length }} resource read{{ '' if fetch_errors|length == 1 else 's' }} returned an error.</strong>
+    Empty tables for these resources mean <em>Lineage could not read them</em>, not <em>nothing exists</em>. Grant the missing verb, then
+    <form method="post" action="/refresh" class="inline-refresh-form">
+      <input type="hidden" name="next" value="{{ request.path }}">
+      <button type="submit" class="link-button">refresh</button>
+    </form>.
+  </div>
+  <table class="dense">
+    <thead><tr><th>Resource</th><th>Scope</th><th>Error</th></tr></thead>
+    <tbody>
+      {% for e in fetch_errors %}
+      <tr>
+        <td class="mono">{{ e.kind }}</td>
+        <td class="mono dim">{% if e.namespace %}namespace <code>{{ e.namespace }}</code>{% else %}cluster-wide{% endif %}</td>
+        <td class="mono dim">{{ e.error }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section id="modes">
+  <h2>How to run Lineage</h2>
+  <ul class="loose">
+    <li>
+      <strong>Local — mock</strong> —
+      <code>LINEAGE_MOCK=1 python run.py</code>. Built-in mock dataset, no cluster.
+    </li>
+    <li>
+      <strong>Local — real cluster</strong> —
+      <code>python run.py</code>, using your existing <code>oc</code> session.
+      See <a href="https://github.com/Amine-LG/lineage/blob/main/docs/quickstart.md" target="_blank" rel="noopener">docs/quickstart.md</a>.
+    </li>
+    <li>
+      <strong>In-cluster</strong> —
+      build inside OpenShift, deploy as a SA. See
+      <a href="https://github.com/Amine-LG/lineage/blob/main/docs/in-cluster.md" target="_blank" rel="noopener">docs/in-cluster.md</a>.
+    </li>
+  </ul>
+</section>
+
+<section id="permissions">
+  <h2>Permissions</h2>
+  <p>Read-only: <code>get</code> and <code>list</code> only, plus <code>oc auth can-i</code>. The only sensitive read is the HTPasswd Secret by exact name in <code>openshift-config</code> (optional, name-scoped). Full breakdown + least-privilege ClusterRole:
+    <a href="https://github.com/Amine-LG/lineage/blob/main/docs/permissions.md" target="_blank" rel="noopener">docs/permissions.md</a>.</p>
+</section>
+
+{% endblock %}

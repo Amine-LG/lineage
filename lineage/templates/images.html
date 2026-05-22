@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Images{% endblock %}
+{% block content %}
+
+<section id="images-overview">
+  <h1>Container images</h1>
+  <p class="lede">Every image running in the cluster, grouped by registry. Catches external images you didn't expect, internal-registry images that depend on ImageStreams, and shows pod attribution end-to-end.</p>
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="?bucket=yours{% if q %}&q={{ q }}{% endif %}#images-overview" class="{% if bucket == 'yours' %}active{% endif %}" title="Project image refs and ImageStreams">Yours <span class="dim mono">{{ counts.yours }}</span></a>
+      <a href="?bucket=unknown{% if q %}&q={{ q }}{% endif %}#images-overview" class="{% if bucket == 'unknown' %}active{% endif %}" title="Image refs and ImageStreams tied to unclassified namespaces — review">Unclassified <span class="dim mono">{{ counts.unknown }}</span></a>
+      <a href="?bucket=baseline{% if q %}&q={{ q }}{% endif %}#images-overview" class="{% if bucket == 'baseline' %}active{% endif %}" title="Baseline image refs and ImageStreams">Baseline <span class="dim mono">{{ counts.baseline }}</span></a>
+      <a href="?bucket=all{% if q %}&q={{ q }}{% endif %}#images-overview" class="{% if bucket == 'all' %}active{% endif %}" title="All image refs and ImageStreams">All <span class="dim mono">{{ counts.all }}</span></a>
+    </div>
+  </div>
+</section>
+
+<section id="image-drift" {% if drift %}class="callout-priv"{% endif %}>
+  {% if drift %}
+  <h2>Stale-by-digest images ({{ drift|length }} of {{ total_drift }})</h2>
+  <p class="lede">
+    These spec image refs (a tag like <code>:latest</code> or <code>:1.25</code>) resolve to
+    <strong>different digests across pods</strong>. Someone repushed the tag while pods were
+    running — half your fleet is on the old digest, half on the new. To fix: pin to digest
+    (<code>image@sha256:...</code>), or roll the deployment so all pods converge.
+  </p>
+  <table class="dense sortable">
+    <thead><tr>
+      <th>Image (spec ref)</th><th>Registry</th><th>Distinct digests</th><th>Pods</th><th>Breakdown</th>
+    </tr></thead>
+    <tbody>
+      {% for d in drift %}
+      <tr class="row-warn">
+        <td class="mono image-cell" title="{{ d.image }}"><a href="{{ url_for('image_detail', ref=d.image) }}">{{ d.image|short_image }}</a></td>
+        <td class="mono">{{ d.registry }}</td>
+        <td class="mono" data-sort="{{ d.digest_count }}">{{ d.digest_count }}</td>
+        <td class="mono" data-sort="{{ d.pod_count }}">{{ d.pod_count }}</td>
+        <td>
+          {% for dg in d.digests %}
+          <details>
+            <summary><code class="mono">{{ dg.digest[:19] }}…</code> <span class="dim">({{ dg.pods|length }} pod{{ '' if dg.pods|length == 1 else 's' }})</span></summary>
+            <ul class="inline-list">
+              {% for p in dg.pods %}
+              <li><a href="/namespace/{{ p.namespace }}" class="mono">{{ p.namespace }}/{{ p.pod }}</a></li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <h2>Stale-by-digest images (0)</h2>
+  <p class="lede">No tag drift detected in this view. Every running spec image reference resolves to a single digest across all pods that use it.</p>
+  {% endif %}
+</section>
+
+{% if registries %}
+<section id="registries">
+  <h2>Registries ({{ registries|length }} of {{ total_registries }})</h2>
+  <p class="lede">Which container registries this cluster pulls from. Public registries used by your workloads are particularly worth knowing about.</p>
+  <table class="dense sortable">
+    <thead><tr>
+      <th>Registry</th><th>Type</th><th>Images</th><th>Pods using</th><th>Used by yours</th>
+    </tr></thead>
+    <tbody>
+      {% for r in registries %}
+      <tr {% if r.user_used and r.classification == 'public' %}class="row-warn"{% endif %}>
+        <td class="mono">{{ r.registry }}</td>
+        <td>
+          {% if r.classification == "internal" %}<span class="badge badge-info">internal registry</span>
+          {% elif r.classification == "redhat" %}<span class="badge badge-sys">Red Hat</span>
+          {% elif r.classification == "public" %}<span class="badge badge-warn">public</span>
+          {% else %}<span class="dim">unclassified</span>{% endif %}
+        </td>
+        <td class="mono">{{ r.image_count }}</td>
+        <td class="mono">{{ r.pod_count }}</td>
+        <td>{% if r.user_used %}<strong>yes</strong>{% else %}<span class="dim">no</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section id="images-list">
+  <h2>Images ({{ inventory|length }} of {{ total_count }})</h2>
+  <div class="toolbar">
+    <input type="search" class="search mono" placeholder="filter image, registry, namespace…"
+           data-filter-target="#images-table" data-filter-counter="#images-counter">
+  </div>
+  <p class="dim"><span id="images-counter">{{ inventory|length }}</span> matching</p>
+  <table class="dense sortable" id="images-table">
+    <thead><tr>
+      <th>Image</th><th>Registry</th><th>Pods</th><th>Used in</th>
+    </tr></thead>
+    <tbody>
+      {% for img in inventory %}
+      <tr {% if img.user_used and img.classification == 'public' %}class="row-warn"{% endif %}>
+        <td class="mono image-cell" title="{{ img.image }}"><a href="{{ url_for('image_detail', ref=img.image) }}">{{ img.image|short_image }}</a></td>
+        <td class="mono">{{ img.registry }}
+          {% if img.classification == "internal" %}<span class="badge badge-info">internal</span>
+          {% elif img.classification == "redhat" %}<span class="badge badge-sys">RH</span>
+          {% elif img.classification == "public" %}<span class="badge badge-warn">public</span>{% endif %}
+        </td>
+        <td class="mono" data-sort="{{ img.pod_count }}">{{ img.pod_count }}</td>
+        <td class="mono">
+          {% set ns_set = img.pods|map(attribute='namespace')|unique|list %}
+          {% for ns in ns_set[:3] %}<a href="/namespace/{{ ns }}">{{ ns }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+          {% if ns_set|length > 3 %}<a class="dim" href="{{ url_for('image_detail', ref=img.image) }}">+{{ ns_set|length - 3 }} more</a>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+
+
+{% if streams %}
+<section id="imagestreams">
+  <h2>ImageStreams ({{ streams|length }} of {{ total_streams }})</h2>
+  <p class="lede">OpenShift ImageStreams. <code>used_by</code> counts pods whose container image references the stream's repository.</p>
+  <table class="dense sortable">
+    <thead><tr>
+      <th>Name</th><th>Namespace</th><th>Tags</th><th>Used by pods</th><th>Created</th>
+    </tr></thead>
+    <tbody>
+      {% for s in streams %}
+      <tr {% if s.baseline %}class="row-baseline"{% endif %}>
+        <td class="mono">{{ s.name }}</td>
+        <td class="mono"><a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>{% if s.baseline %}<span class="badge badge-sys">baseline</span>{% endif %}</td>
+        <td class="mono">{{ s.status_tags|join(", ") if s.status_tags else "—" }}</td>
+        <td class="mono" data-sort="{{ s.use_count }}">
+          {% if s.used_by %}
+          <details>
+            <summary>{{ s.use_count }} pod{{ '' if s.use_count == 1 else 's' }}</summary>
+            <ul class="inline-list">
+              {% for p in s.used_by %}
+              <li><a href="/namespace/{{ p.namespace }}" class="mono">{{ p.namespace }}/{{ p.pod }}</a></li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% else %}
+          0 pods
+          {% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ s.creation_ts or '' }}" title="{{ s.creation_ts }}">{{ s.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

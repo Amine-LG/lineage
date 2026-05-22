@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Cross-namespace{% endblock %}
+{% import "_kind.html" as k %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace" class="active">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+{% if limited %}
+<section id="cross-namespace-bindings">
+  <div class="banner banner-warn">
+    <strong>Limited view.</strong> Cross-namespace and image-puller analysis
+    requires cluster-admin to read all RoleBindings. As a non-admin you'll see
+    only what's in namespaces you have access to.
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h1>Cross-namespace bindings</h1>
+  <p class="lede">RoleBindings whose subject is a <code>ServiceAccount</code> in a different namespace than the binding. These paths are useful to review because a CI or automation namespace can hold access inside a separate application namespace.</p>
+  {% if pullers %}
+  <p class="dim">Below: <strong><a href="#image-pullers">Image-puller / image-builder grants ↓</a></strong>{% if pullers|length %} ({{ pullers|length }}){% endif %}</p>
+  {% endif %}
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="?bucket=yours#cross-namespace-bindings" class="{% if bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ bind_counts.yours }}</span></a>
+      <a href="?bucket=unknown#cross-namespace-bindings" class="{% if bucket == 'unknown' %}active{% endif %}" title="Cross-namespace bindings whose subject or binding lives in an unclassified namespace — review">Unclassified <span class="dim mono">{{ bind_counts.unknown }}</span></a>
+      <a href="?bucket=baseline#cross-namespace-bindings" class="{% if bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ bind_counts.baseline }}</span></a>
+      <a href="?bucket=all#cross-namespace-bindings" class="{% if bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ bind_counts.all }}</span></a>
+    </div>
+  </div>
+
+  {% if bindings %}
+  <table class="dense sortable">
+    <thead><tr><th>SA namespace</th><th>ServiceAccount</th><th>→ binding namespace</th><th>Role</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for b in bindings %}
+      <tr {% if b.is_privileged %}class="row-priv"{% elif b.baseline %}class="row-baseline"{% endif %}>
+        <td class="mono"><a href="/namespace/{{ b.sa_namespace }}">{{ b.sa_namespace }}</a></td>
+        <td class="mono">
+          <a href="/subject/ServiceAccount/{{ b.subject.name }}?namespace={{ b.sa_namespace }}">{{ b.subject.name }}</a>
+        </td>
+        <td class="mono"><a href="/namespace/{{ b.binding_namespace }}">{{ b.binding_namespace }}</a></td>
+        <td>
+          {% if b.role_kind == "ClusterRole" and b.is_privileged %}
+            <a class="badge badge-priv" href="/clusterrole/{{ b.role }}">{{ b.role }}</a>
+          {% elif b.role_kind == "ClusterRole" %}
+            <a class="mono" href="/clusterrole/{{ b.role }}">{{ b.role }}</a>
+          {% elif b.role_kind == "Role" and b.is_privileged %}
+            <a class="badge badge-priv" href="/role/{{ b.binding_namespace }}/{{ b.role }}">{{ b.role }}</a>
+          {% elif b.role_kind == "Role" %}
+            <a class="mono" href="/role/{{ b.binding_namespace }}/{{ b.role }}">{{ b.role }}</a>
+          {% else %}
+            <span class="mono">{{ b.role }}</span>
+          {% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ b.creation_ts or '' }}" title="{{ b.creation_ts }}">{{ b.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No cross-namespace bindings in this view.</p>{% endif %}
+</section>
+
+<section id="image-pullers">
+  <h2>Image-puller / image-builder grants</h2>
+  <p class="lede">OpenShift's <code>system:image-puller</code> and <code>system:image-builder</code> roles allow pods to pull and push images via the internal registry. The default <code>system:serviceaccounts:&lt;ns&gt;</code> group binding is filtered out — anything else is worth a look. Cross-namespace grants enable silent image access between projects.</p>
+
+  {% if pullers %}
+  <table class="dense sortable">
+    <thead><tr><th>Subject</th><th>Namespace</th><th>Role</th><th>Cross-NS</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for p in pullers %}
+      <tr {% if p.cross_namespace %}class="row-warn"{% elif p.baseline %}class="row-baseline"{% endif %}>
+        <td>
+          {{ k.tag(p.subject.kind) }}
+          {% if p.subject.kind == "ServiceAccount" %}
+            <a class="mono" href="/subject/ServiceAccount/{{ p.subject.name }}?namespace={{ p.subject.namespace }}">{{ p.subject.name }}</a>
+          {% elif p.subject.kind == "User" %}
+            <a class="mono" href="/subject/User/{{ p.subject.name }}">{{ p.subject.name }}</a>
+          {% elif p.subject.kind == "Group" %}
+            <a class="mono" href="/subject/Group/{{ p.subject.name }}">{{ p.subject.name }}</a>
+          {% else %}
+            <span class="mono">{{ p.subject.name }}</span>
+          {% endif %}
+          {% if p.subject.namespace %}<span class="dim mono">({{ p.subject.namespace }})</span>{% endif %}
+        </td>
+        <td class="mono"><a href="/namespace/{{ p.namespace }}">{{ p.namespace }}</a></td>
+        <td class="mono"><a href="/clusterrole/{{ p.role }}">{{ p.role }}</a></td>
+        <td>{% if p.cross_namespace %}<span class="badge badge-warn">cross-ns</span>{% else %}—{% endif %}</td>
+        <td class="mono dim" data-sort="{{ p.creation_ts or '' }}" title="{{ p.creation_ts }}">{{ p.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No non-default image-puller grants in this view.</p>{% endif %}
+</section>
+
+{% endblock %}

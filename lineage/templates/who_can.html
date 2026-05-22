@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Who can{% endblock %}
+{% import "_kind.html" as k %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can" class="active">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+<section id="who-can-form">
+  <h1>Who can</h1>
+  <p class="lede">Reverse RBAC lookup from Lineage's cached read-only inventory. This does not shell out to <code>oc adm policy who-can</code>; Lineage expands real Groups into member users and flags ghosts, baseline, and unclassified rows.</p>
+
+  <form method="get" action="/who-can#who-can-results" class="who-form">
+    <label>verb
+      <input name="verb" value="{{ verb }}" list="verbs-list" placeholder="get, list, *…" autofocus>
+      <datalist id="verbs-list">
+        {% for v in verbs %}<option value="{{ v }}">{% endfor %}
+      </datalist>
+    </label>
+    <label>resource
+      <input name="resource" value="{{ resource }}" list="resources-list" placeholder="secrets, pods, pods/log…">
+      <datalist id="resources-list">
+        {% for r in resources %}<option value="{{ r }}">{% endfor %}
+      </datalist>
+    </label>
+    <label>name <span class="dim">(optional)</span>
+      <input name="name" value="{{ name }}" placeholder="privileged, my-pod…">
+    </label>
+    <label>namespace <span class="dim">(optional)</span>
+      <input name="namespace" value="{{ namespace }}" list="namespaces-list" placeholder="blank searches all scopes">
+      <datalist id="namespaces-list">
+        {% for n in namespaces %}<option value="{{ n }}">{% endfor %}
+      </datalist>
+    </label>
+    <button type="submit">Run</button>
+  </form>
+
+  {% if queried %}
+    <h2 id="who-can-results">Results: <span class="mono">{{ verb }}</span> on <span class="mono">{{ resource }}</span>{% if name %} named <span class="mono">{{ name }}</span>{% endif %}{% if namespace %} in <span class="mono">{{ namespace }}</span>{% endif %}</h2>
+
+    {% if not matches %}
+      <p class="dim">No subjects match.</p>
+    {% else %}
+      <div class="who-filter-stack">
+        <div class="filterbar who-filter-row who-filter-primary">
+          <a href="{{ who_can_url('yours', kind_filter, path_filter) }}" class="{% if bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ bucket_counts.yours }}</span></a>
+          <a href="{{ who_can_url('unknown', kind_filter, path_filter) }}" class="{% if bucket == 'unknown' %}active{% endif %}">Unclassified <span class="dim mono">{{ bucket_counts.unknown }}</span></a>
+          <a href="{{ who_can_url('baseline', kind_filter, path_filter) }}" class="{% if bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ bucket_counts.baseline }}</span></a>
+          <a href="{{ who_can_url('all', kind_filter, path_filter) }}" class="{% if bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ bucket_counts.all }}</span></a>
+        </div>
+
+        <div class="filterbar who-filter-row who-filter-secondary">
+          <span class="who-filter-dot">·</span>
+          <a href="{{ who_can_url(bucket, 'all', path_filter) }}" class="{% if kind_filter == 'all' %}active{% endif %}">All subjects <span class="dim mono">{{ kind_counts.all }}</span></a>
+          <a href="{{ who_can_url(bucket, 'User', path_filter) }}" class="{% if kind_filter == 'User' %}active{% endif %}">Users <span class="dim mono">{{ kind_counts.User }}</span></a>
+          <a href="{{ who_can_url(bucket, 'Group', path_filter) }}" class="{% if kind_filter == 'Group' %}active{% endif %}">Groups <span class="dim mono">{{ kind_counts.Group }}</span></a>
+          <a href="{{ who_can_url(bucket, 'ServiceAccount', path_filter) }}" class="{% if kind_filter == 'ServiceAccount' %}active{% endif %}">SAs <span class="dim mono">{{ kind_counts.ServiceAccount }}</span></a>
+        </div>
+
+        <div class="filterbar who-filter-row who-filter-tertiary">
+          <span class="who-filter-dot">·</span>
+          <a href="{{ who_can_url(bucket, kind_filter, 'all') }}" class="{% if path_filter == 'all' %}active{% endif %}">All paths <span class="dim mono">{{ path_counts.all }}</span></a>
+          <a href="{{ who_can_url(bucket, kind_filter, 'direct') }}" class="{% if path_filter == 'direct' %}active{% endif %}">Direct <span class="dim mono">{{ path_counts.direct }}</span></a>
+          <a href="{{ who_can_url(bucket, kind_filter, 'expanded') }}" class="{% if path_filter == 'expanded' %}active{% endif %}">Via group <span class="dim mono">{{ path_counts.expanded }}</span></a>
+          <a href="{{ who_can_url(bucket, kind_filter, 'ghost') }}" class="{% if path_filter == 'ghost' %}active{% endif %}">Ghosts <span class="dim mono">{{ path_counts.ghost }}</span></a>
+          <input type="search" class="search mono" placeholder="filter…"
+                 data-filter-target="#who-can-table" data-filter-counter="#who-can-counter">
+        </div>
+      </div>
+
+      <p class="dim">
+        <span id="who-can-counter">{{ visible_matches|length }}</span>
+        row{{ '' if visible_matches|length == 1 else 's' }} shown
+        ({{ matches|length }} total)
+        {% if bucket != 'yours' or kind_filter != 'all' or path_filter != 'all' %}
+          · <a href="{{ who_can_url('yours', 'all', 'all') }}">clear filters</a>
+        {% endif %}
+      </p>
+
+      {% macro render_table(rows) %}
+      <table class="dense sortable" id="who-can-table">
+        <thead><tr>
+          <th>Subject</th><th>Path</th><th>Binding</th><th>Scope</th>
+        </tr></thead>
+        <tbody>
+          {% for m in rows %}
+          <tr {% if m.ghost %}class="row-ghost"{% elif m.baseline %}class="row-baseline"{% endif %}>
+            <td>
+              {{ k.tag(m.subject.kind) }}
+              <a href="/subject/{{ m.subject.kind }}/{{ m.subject.name }}{% if m.subject.namespace %}?namespace={{ m.subject.namespace }}{% endif %}" class="mono">{{ m.subject.name }}</a>
+              {% if m.subject.namespace %}<span class="dim mono">(<a href="/namespace/{{ m.subject.namespace }}">{{ m.subject.namespace }}</a>)</span>{% endif %}
+              {% if m.ghost %}<span class="badge badge-warn">ghost</span>{% endif %}
+              {% if m.unknown %}<span class="badge badge-warn">unclassified</span>{% endif %}
+              {% if m.baseline %}<span class="badge badge-sys">baseline</span>{% endif %}
+            </td>
+            <td>{% if m.via_group %}via Group <a class="mono" href="/subject/Group/{{ m.via_group }}">{{ m.via_group }}</a>{% else %}<span class="dim">direct</span>{% endif %}</td>
+            <td class="mono">
+              {{ m.binding.kind }}/{{ m.binding.name }}
+              {% if m.binding.namespace %}<span class="dim">(<a href="/namespace/{{ m.binding.namespace }}">{{ m.binding.namespace }}</a>)</span>{% endif %}
+            </td>
+            <td>{% if m.binding.kind == "ClusterRoleBinding" %}cluster-wide{% else %}<a class="mono" href="/namespace/{{ m.binding.namespace }}">{{ m.binding.namespace }}</a>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endmacro %}
+
+      {% if visible_matches %}
+        {{ render_table(visible_matches) }}
+      {% else %}
+        <p class="dim">No rows match these filters.</p>
+      {% endif %}
+    {% endif %}
+  {% else %}
+    <div class="hints">
+      <p><strong>Try:</strong></p>
+      <ul>
+        <li><a href="/who-can?verb=list&resource=secrets&namespace=payments-prod#who-can-results">list secrets in payments-prod</a></li>
+        <li><a href="/who-can?verb=get&resource=pods/log&namespace=payments-prod#who-can-results">get pod logs in payments-prod</a></li>
+        <li><a href="/who-can?verb=use&resource=securitycontextconstraints&name=privileged#who-can-results">use the privileged SCC</a></li>
+        <li><a href="/who-can?verb=*&resource=*#who-can-results">* on * (cluster-admin reach)</a></li>
+      </ul>
+    </div>
+  {% endif %}
+</section>
+
+{% endblock %}

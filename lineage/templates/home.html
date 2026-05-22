@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% block content %}
+
+<section class="overview dashboard-hero">
+  <h1>Lineage</h1>
+  <p class="lede">A local map of OpenShift identities, access paths, workloads, and images. <span class="hero-card-hint">Click any card to follow the relationship.</span></p>
+</section>
+
+{% if htpasswd_configured and not htpasswd_available %}
+<section class="banner" id="htpasswd-degraded-home">
+  <strong>HTPasswd checks degraded.</strong> An HTPasswd IdP is configured, but Lineage couldn't read its backing Secret in <code>openshift-config</code>{% if htpasswd_reason %} (<span class="mono dim">{{ htpasswd_reason }}</span>){% endif %}. Latent (htpasswd-source), removed-from-htpasswd phantom, and htpasswd-backed markers are <strong>unavailable</strong>. <a href="/identity-audit#htpasswd-degraded">More details</a> · <a href="/setup">Grant access</a>.
+</section>
+{% endif %}
+
+{% set review_critical_sas = resurrectable_critical_count %}
+{% set review_total = anomaly_count + review_critical_sas %}
+{% set resurrectable_combined = resurrectable_count + resurrectable_implicit_count %}
+{% if review_total %}
+{% set preview_limit = 2 %}
+{% set latent_preview = audit.latent_users[:preview_limit] %}
+{% set phantom_preview = audit.phantom_users[:preview_limit] %}
+{% set ghost_preview = audit.bound_ghosts[:preview_limit] %}
+{% set stranded_preview = audit.stranded_users[:preview_limit] %}
+{% set orphan_preview = audit.orphan_identities[:preview_limit] %}
+{% set critical_resur_all = audit.resurrectable_critical %}
+{% set critical_impl_all = audit.resurrectable_implicit_critical %}
+{% set critical_resur_preview = critical_resur_all[:preview_limit] %}
+{% set critical_impl_preview = critical_impl_all[:preview_limit - (critical_resur_preview|length)] %}
+<section class="review-summary" aria-label="Dashboard summary">
+  <div class="summary-stat" aria-label="{{ review_total }} identity review items">
+    <div class="summary-num">{{ review_total }}</div>
+    <div class="summary-label">review items</div>
+  </div>
+  <div class="summary-body">
+    <span class="summary-kicker">Review snapshot</span>
+    <h2>Identity references need review</h2>
+    <p class="summary-text">
+      {% if audit.latent_users %}
+      <span><strong>{{ audit.latent_users|length }} latent</strong>{% if latent_preview %} users: <span class="mono">{{ latent_preview|map(attribute='username')|join(', ') }}{% if audit.latent_users|length > preview_limit %}, +{{ audit.latent_users|length - preview_limit }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+      {% if audit.phantom_users %}
+      <span><strong>{{ audit.phantom_users|length }} phantom user{{ '' if audit.phantom_users|length == 1 else 's' }}</strong>{% if phantom_preview %}: <span class="mono">{{ phantom_preview|map(attribute='name')|join(', ') }}{% if audit.phantom_users|length > preview_limit %}, +{{ audit.phantom_users|length - preview_limit }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+      {% if audit.bound_ghosts %}
+      <span><strong>{{ audit.bound_ghosts|length }} bound ghost{{ '' if audit.bound_ghosts|length == 1 else 's' }}</strong>{% if ghost_preview %}: <span class="mono">{% for ghost in ghost_preview %}{{ ghost.subject.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% if audit.bound_ghosts|length > preview_limit %}, +{{ audit.bound_ghosts|length - preview_limit }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+      {% if audit.stranded_users %}
+      <span><strong>{{ audit.stranded_users|length }} stranded user{{ '' if audit.stranded_users|length == 1 else 's' }}</strong>{% if stranded_preview %}: <span class="mono">{{ stranded_preview|map(attribute='name')|join(', ') }}{% if audit.stranded_users|length > preview_limit %}, +{{ audit.stranded_users|length - preview_limit }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+      {% if audit.orphan_identities %}
+      <span><strong>{{ audit.orphan_identities|length }} orphan identit{{ 'y' if audit.orphan_identities|length == 1 else 'ies' }}</strong>{% if orphan_preview %}: <span class="mono">{{ orphan_preview|map(attribute='identity')|join(', ') }}{% if audit.orphan_identities|length > preview_limit %}, +{{ audit.orphan_identities|length - preview_limit }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+      {% if review_critical_sas %}
+      <span><strong>{{ review_critical_sas }} critical resurrectable</strong>{% if critical_resur_preview or critical_impl_preview %}: <span class="mono">{% for r in critical_resur_preview %}{{ r.namespace }}/{{ r.name }}{% if not loop.last or critical_impl_preview %}, {% endif %}{% endfor %}{% for g in critical_impl_preview %}{{ g.group }}{% if not loop.last %}, {% endif %}{% endfor %}{% if review_critical_sas > (critical_resur_preview|length + critical_impl_preview|length) %}, +{{ review_critical_sas - critical_resur_preview|length - critical_impl_preview|length }} more{% endif %}</span>{% endif %}</span>
+      {% endif %}
+    </p>
+  </div>
+  <a class="summary-action" href="/identity-audit">Open Identity Audit &rarr;</a>
+</section>
+{% endif %}
+
+<div class="dashboard-metrics">
+
+<section class="counter-group metric-section metric-identity">
+  <h2><span>Identity</span><small>Subjects and review-worthy references.</small></h2>
+  <div class="counter-grid">
+    <a class="counter {% if anomaly_count > 0 %}counter-warn{% endif %}" href="/identity-audit#identity-anomalies">
+      <div class="num">{{ anomaly_count }}</div>
+      <div class="lab">identity findings</div>
+      {% if ghosts_hidden_count > 0 %}<div class="counter-sub">{{ ghosts_hidden_count }} baseline ghosts hidden</div>{% endif %}
+    </a>
+    {# Card adapts to whichever severity is most actionable:
+       - any critical → counter-priv, "critical" wording, critical link
+       - else any high → counter-warn, "high" wording, high link
+       - else → neutral, "resurrectable" wording, neutral link
+       The number always matches whichever severity the card is showing
+       so the card never reads "0 critical" while real findings sit at
+       lower tiers. #}
+    {# Counts/links here look at ACTIONABLE rows only. Baseline rows
+       (openshift-*/kube-* — admission-protected) are still visible
+       via /identity-audit?severity=all but never drive the home card. #}
+    {% set _r_actionable_total = (resurrectable_count + resurrectable_implicit_count) %}
+    {% if resurrectable_critical_count %}
+      {% set _r_severity = 'critical' %}
+      {% set _r_num = resurrectable_critical_count %}
+      {% set _r_class = 'counter-priv' %}
+      {% set _r_href = '/identity-audit?severity=critical#resurrectable' %}
+    {% elif resurrectable_high_count %}
+      {% set _r_severity = 'high' %}
+      {% set _r_num = resurrectable_high_count %}
+      {% set _r_class = 'counter-warn' %}
+      {% set _r_href = '/identity-audit?severity=high#resurrectable' %}
+    {% elif _r_actionable_total %}
+      {% set _r_severity = 'all' %}
+      {% set _r_num = _r_actionable_total %}
+      {% set _r_class = '' %}
+      {% set _r_href = '/identity-audit?severity=all#resurrectable' %}
+    {% else %}
+      {# Zero actionable. If there are baseline platform findings,
+         link to severity=all so the reviewer can still find them. #}
+      {% set _r_severity = 'all' %}
+      {% set _r_num = 0 %}
+      {% set _r_class = '' %}
+      {% set _r_href = '/identity-audit?severity=all#resurrectable' %}
+    {% endif %}
+    <a class="counter {{ _r_class }}" href="{{ _r_href }}">
+      <div class="num">{{ _r_num }}</div>
+      <div class="lab">{% if _r_severity == 'critical' %}critical resurrectable{% elif _r_severity == 'high' %}high resurrectable{% else %}resurrectable{% endif %}</div>
+      <div class="counter-sub">{{ resurrectable_count }} SA{{ '' if resurrectable_count == 1 else 's' }} · {{ resurrectable_implicit_count }} SCC group{{ '' if resurrectable_implicit_count == 1 else 's' }}{% if resurrectable_baseline_count %} · {{ resurrectable_baseline_count }} baseline{% endif %}</div>
+    </a>
+    <a class="counter" href="/subjects?bucket=yours&kind=User#subjects-list">
+      <div class="num">{{ users_yours }}</div>
+      <div class="lab">user subjects</div>
+      <div class="counter-sub">{{ users_total }} total visible</div>
+    </a>
+    <a class="counter" href="{% if groups_yours %}/subjects?bucket=yours&kind=Group#subjects-list{% else %}/subjects?bucket=all&kind=Group#subjects-list{% endif %}">
+      <div class="num">{{ groups_yours }}</div>
+      <div class="lab">group subjects</div>
+      <div class="counter-sub">{% if virtual_groups_total %}{{ groups_total }} real · {{ virtual_groups_total }} virtual{% else %}{{ groups_total }} visible total{% endif %}</div>
+    </a>
+  </div>
+</section>
+
+<section class="counter-group metric-section metric-permissions">
+  <h2><span>Access paths</span><small>Grants, roles, and duplicate bindings.</small></h2>
+  <div class="counter-grid">
+    <a class="counter {% if privileged_yours > 0 %}counter-priv{% endif %}" href="/privileged?bucket={{ privileged_card_bucket }}#privileged-subjects">
+      <div class="num">{{ privileged_yours }}</div>
+      <div class="lab">privileged bindings</div>
+      <div class="counter-sub">of {{ privileged_total }} total{% if privileged_baseline_count %} · {{ privileged_baseline_count }} baseline{% endif %}</div>
+    </a>
+    <a class="counter {% if duplicates_count > 0 %}counter-warn{% endif %}" href="{% if duplicates_preview %}#duplicate-bindings{% else %}/permission-grants#role-grants-list{% endif %}">
+      <div class="num">{{ duplicates_count }}</div>
+      <div class="lab">duplicate bindings</div>
+      <div class="counter-sub">same role + subjects, different CRB names</div>
+    </a>
+    <a class="counter {% if grants_yours_total > 0 %}counter-info{% endif %}" href="/permission-grants#role-grants-list">
+      <div class="num">{{ grants_yours_total }}</div>
+      <div class="lab">role grants</div>
+      <div class="counter-sub">non-baseline subjects</div>
+    </a>
+    <a class="counter" href="/aggregated">
+      <div class="num">{{ aggregated_count }}</div>
+      <div class="lab">aggregated roles</div>
+      <div class="counter-sub">of {{ aggregated_total }} total</div>
+    </a>
+  </div>
+</section>
+
+<section class="counter-group metric-section metric-workloads">
+  <h2><span>Workloads</span><small>Namespaces, pods, ServiceAccounts, SCCs.</small></h2>
+  <div class="counter-grid">
+    <a class="counter" href="/namespaces?category={{ namespaces_card_category }}#namespaces-list">
+      <div class="num">{{ namespaces_yours }}</div>
+      <div class="lab">namespaces</div>
+      <div class="counter-sub">of {{ namespaces_total }} total</div>
+    </a>
+    <a class="counter" href="/namespaces?category={{ pods_card_category }}#namespaces-list">
+      <div class="num">{{ pods_count }}</div>
+      <div class="lab">pods</div>
+      <div class="counter-sub">of {{ pods_total }} total</div>
+    </a>
+    <a class="counter" href="/subjects?bucket={{ sas_card_bucket }}&kind=ServiceAccount#subjects-list">
+      <div class="num">{{ sas_yours }}</div>
+      <div class="lab">service accounts</div>
+      <div class="counter-sub">of {{ sas_total }} total visible</div>
+    </a>
+    <a class="counter" href="/sccs">
+      <div class="num">{{ scc_count }}</div>
+      <div class="lab">SCCs</div>
+      <div class="counter-sub">of {{ scc_total }} total</div>
+    </a>
+  </div>
+</section>
+
+<section class="counter-group metric-section metric-images">
+  <h2><span>Images</span><small>Running images, registries, tag drift.</small></h2>
+  <div class="counter-grid">
+    <a class="counter" href="/images?bucket={{ images_card_bucket }}#images-list">
+      <div class="num">{{ images_yours_count }}</div>
+      <div class="lab">images</div>
+      <div class="counter-sub">of {{ images_total }} total</div>
+    </a>
+    <a class="counter" href="/images?bucket={{ imagestreams_card_bucket }}#imagestreams">
+      <div class="num">{{ imagestreams_yours_count }}</div>
+      <div class="lab">ImageStreams</div>
+      <div class="counter-sub">of {{ imagestreams_total }} total</div>
+    </a>
+    <a class="counter" href="/images?bucket={{ registries_card_bucket }}#registries">
+      <div class="num">{{ registries_yours_count }}</div>
+      <div class="lab">registries</div>
+      <div class="counter-sub">of {{ registries_total }} total</div>
+    </a>
+    <a class="counter {% if drift_yours_count > 0 %}counter-warn{% endif %}" href="/images?bucket={{ drift_card_bucket }}#image-drift">
+      <div class="num">{{ drift_yours_count }}</div>
+      <div class="lab">digest drift</div>
+      <div class="counter-sub">tag → multiple digests</div>
+    </a>
+  </div>
+</section>
+
+</div>
+
+{% if resurrectable_priv %}
+<section class="callout-priv table-panel table-panel-critical">
+  <h2>Resurrectable ServiceAccount identities ({{ resurrectable_priv|length }})</h2>
+  <p>Absent ServiceAccount names with surviving grants. Recreating the name reactivates access. <a href="/identity-audit?severity=critical#resurrectable">Open Identity Audit →</a></p>
+  {% with items = resurrectable_priv %}{% include "_resurrectable_table.html" %}{% endwith %}
+</section>
+{% endif %}
+
+{% if privileged_preview %}
+<section class="callout-priv table-panel table-panel-critical">
+  <h2>Privileged subjects ({{ privileged_yours }})</h2>
+  <p>Subjects bound to high-impact roles. <a href="/privileged?bucket=yours#privileged-subjects">See all →</a> · <a href="/privileged?bucket=baseline#privileged-subjects">Baseline ({{ privileged_baseline_count }})</a></p>
+  <table class="dense sortable">
+    <thead><tr><th>Role</th><th>Subject</th><th>Scope</th><th>Binding</th></tr></thead>
+    <tbody>
+      {% for it in privileged_preview %}
+      <tr {% if it.ghost %}class="row-ghost"{% elif it.stranded or it.latent %}class="row-warn"{% endif %}>
+        <td><a class="badge badge-priv" href="/clusterrole/{{ it.role }}">{{ it.role }}</a></td>
+        <td>
+          {{ k.tag(it.subject.kind) }}
+          <a class="mono" href="/subject/{{ it.subject.kind }}/{{ it.subject.name }}{% if it.subject.namespace %}?namespace={{ it.subject.namespace }}{% endif %}">{{ it.subject.name }}</a>
+          {% if it.subject.namespace %}<span class="dim mono">({{ it.subject.namespace }})</span>{% endif %}
+          {{ m.badges(it) }}
+        </td>
+        <td class="mono dim">{% if it.scope and it.scope != "cluster" %}<a href="/namespace/{{ it.scope }}">{{ it.scope }}</a>{% else %}cluster-wide{% endif %}</td>
+        <td class="mono">{{ it.binding.kind }}/{{ it.binding.name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if recent_grants %}
+<section class="callout-info table-panel table-panel-info">
+  <h2>Recent role grants ({{ grants_yours_total }} total)</h2>
+  <p>Newest non-baseline RBAC grants first. <a href="/permission-grants#role-grants-list">See all →</a></p>
+  <table class="dense sortable">
+    <thead><tr><th>When</th><th>Role</th><th>Subject</th><th>Scope</th><th>Binding</th></tr></thead>
+    <tbody>
+      {% for g in recent_grants %}
+      <tr {% if g.ghost %}class="row-ghost"{% elif g.stranded or g.latent %}class="row-warn"{% elif g.is_privileged %}class="row-priv"{% endif %}>
+        <td class="mono dim" data-sort="{{ g.creation_ts or '' }}" title="{{ g.creation_ts }}">{{ g.creation_ts|humanage }}</td>
+        <td>
+          {% if g.role_kind == "ClusterRole" and g.is_privileged %}
+            <a class="badge badge-priv" href="/clusterrole/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.role_kind == "ClusterRole" %}
+            <a class="mono" href="/clusterrole/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.role_kind == "Role" and g.scope and g.scope != "cluster" %}
+            <a class="mono" href="/role/{{ g.scope }}/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.is_privileged %}
+            <span class="badge badge-priv">{{ g.role }}</span>
+          {% else %}
+            <span class="mono">{{ g.role }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {{ k.tag(g.subject.kind) }}
+          <a class="mono" href="/subject/{{ g.subject.kind }}/{{ g.subject.name }}{% if g.subject.namespace %}?namespace={{ g.subject.namespace }}{% endif %}">{{ g.subject.name }}</a>
+          {% if g.subject.namespace %}<span class="dim mono">({{ g.subject.namespace }})</span>{% endif %}
+          {{ m.badges(g) }}
+        </td>
+        <td class="mono dim">{% if g.scope and g.scope != "cluster" %}<a href="/namespace/{{ g.scope }}">{{ g.scope }}</a>{% else %}cluster-wide{% endif %}</td>
+        <td class="mono">{{ g.binding.kind }}/{{ g.binding.name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if duplicates_preview %}
+<section id="duplicate-bindings" class="ghost-callout table-panel table-panel-warning">
+  <h2>Duplicate bindings ({{ duplicates_count }})</h2>
+  <p>Different binding names with the same role and subjects.</p>
+  <table class="dense sortable">
+    <thead><tr><th>Role</th><th>Subjects</th><th>Bindings</th></tr></thead>
+    <tbody>
+      {% for d in duplicates_preview %}
+      <tr {% if d.is_privileged %}class="row-priv"{% endif %}>
+        <td>
+          {% if d.role_kind == "ClusterRole" and d.is_privileged %}
+            <a class="badge badge-priv" href="/clusterrole/{{ d.role }}">{{ d.role }}</a>
+          {% elif d.role_kind == "ClusterRole" %}
+            <a class="mono" href="/clusterrole/{{ d.role }}">{{ d.role }}</a>
+          {% elif d.role_kind == "Role" and d.binding_namespace %}
+            <a class="mono" href="/role/{{ d.binding_namespace }}/{{ d.role }}">{{ d.role }}</a>
+          {% elif d.is_privileged %}
+            <span class="badge badge-priv">{{ d.role }}</span>
+          {% else %}
+            <span class="mono">{{ d.role }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% for s in d.subjects %}
+            {{ k.tag(s.kind) }}<a class="mono" href="/subject/{{ s.kind }}/{{ s.name }}{% if s.namespace %}?namespace={{ s.namespace }}{% endif %}">{{ s.name }}</a>{% if s.namespace %} <span class="dim mono">(<a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>)</span>{% endif %}
+            {{ m.badges(s) }}
+            {% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </td>
+        <td class="mono">
+          {% for b in d.bindings %}{{ b.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+          <span class="dim">({{ d.count }})</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="table-panel table-panel-neutral">
+  <h2>Identity providers</h2>
+  {% if idps %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Type</th><th>Mapping</th><th>Backing config</th></tr></thead>
+    <tbody>
+      {% for idp in idps %}
+      <tr>
+        <td class="mono"><a href="/identity-audit#identity-providers">{{ idp.name }}</a></td>
+        <td>{{ idp.type }}</td>
+        <td>{{ idp.mappingMethod }}</td>
+        <td class="mono">
+          {% if idp.type == "HTPasswd" %}Secret/{{ idp.htpasswd.fileData.name }}
+          {% elif idp.type == "LDAP" %}Secret/{{ idp.ldap.bindPassword.name }} · url={{ idp.ldap.url }}
+          {% else %}(config not shown){% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No identity providers configured.</p>{% endif %}
+</section>
+
+{% endblock %}

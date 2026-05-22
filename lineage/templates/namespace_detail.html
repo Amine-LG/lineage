@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+{% block title %}Namespace {{ ns }}{% endblock %}
+{% import "_thresh.html" as t %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% import "_back.html" as back %}
+{% block content %}
+
+<section>
+  {{ back.back("/namespaces") }}
+  <h1>
+    {{ k.tag("Namespace") }}
+    <span class="mono">{{ ns }}</span>
+    {% if not namespace_present %}<span class="badge badge-priv">deleted</span>{% endif %}
+    {% if summary.category %}<span class="badge {% if summary.category == 'project' %}badge-info{% elif summary.category == 'unknown' %}badge-warn{% else %}badge-sys{% endif %}">{{ summary.category|category_label }}</span>{% endif %}
+    {% if summary.has_privileged_pods %}<span class="badge badge-priv">privileged pods</span>{% endif %}
+  </h1>
+  <p class="lede">
+    {% if summary.owner %}Created by <span class="mono">{{ summary.owner }}</span> · {% endif %}
+    {% if summary.creation_ts %}{{ summary.creation_ts|humantime }}{% endif %}
+  </p>
+
+  {% if not namespace_present %}
+  <div class="banner banner-warn">
+    <strong>Namespace object is absent.</strong> This page is reachable
+    because at least one cluster-scoped grant still references a
+    ServiceAccount principal in <code>{{ ns }}</code>. Recreating the
+    namespace and the named SA reactivates the grants below.
+  </div>
+  {% endif %}
+</section>
+
+{% if resurrectable %}
+<section>
+  <h2>Resurrectable ServiceAccount identities here ({{ resurrectable|length }})</h2>
+  <p class="lede">
+    Surviving cluster-scoped grants address an SA name in this namespace
+    even though the SA object is gone.
+  </p>
+  <table class="dense">
+    <thead><tr><th>Severity</th><th>Principal</th><th>Surviving grants</th></tr></thead>
+    <tbody>
+      {% for r in resurrectable %}
+      <tr class="{% if r.severity == 'critical' %}row-priv{% elif r.severity == 'high' %}row-warn{% else %}row-ghost{% endif %}">
+        <td>
+          {% if r.severity == 'critical' %}<span class="badge badge-priv">critical</span>
+          {% elif r.severity == 'high' %}<span class="badge badge-priv">high</span>
+          {% elif r.severity == 'medium' %}<span class="badge badge-warn">medium</span>
+          {% else %}<span class="badge badge-info">low</span>{% endif %}
+        </td>
+        <td class="mono">
+          <a href="/subject/ServiceAccount/{{ r.name }}?namespace={{ r.namespace }}">{{ r.name }}</a>
+          <span class="badge badge-warn">resurrectable</span>
+        </td>
+        <td class="mono">
+          {% for g in r.grants %}
+          <div>
+            {{ k.tag(g.kind) }}{{ g.name }}
+            {% if g.role %}→
+              {% if g.is_privileged_role or g.is_privileged_scc %}<span class="badge badge-priv">{{ g.role }}</span>
+              {% else %}<span class="mono">{{ g.role }}</span>{% endif %}
+            {% endif %}
+            <span class="dim">({{ g.via }})</span>
+          </div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <details class="path-card">
+    <summary>
+      <strong>Why this category</strong>
+      <span class="dim mono">— {{ summary.signals|length }} signal{{ '' if summary.signals|length == 1 else 's' }}</span>
+    </summary>
+    <div class="path-rules">
+      {% if summary.signals %}
+      <table class="dense rules-table">
+        <thead><tr><th>Category</th><th>Reason</th></tr></thead>
+        <tbody>
+          {% for s in summary.signals %}
+          <tr>
+            <td class="mono">{{ s.category|category_label }}</td>
+            <td>{{ s.reason }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="dim">No rule matched this namespace, so it is <strong>unclassified</strong>. To flag it differently, append a custom rule to <code>SIGNAL_RULES</code> in <code>lineage/classifier.py</code>.</p>
+      {% endif %}
+    </div>
+  </details>
+</section>
+
+<section>
+  <h2>ServiceAccounts ({{ sas|length }})</h2>
+  {% if sas %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for sa in sas %}
+      <tr>
+        <td class="mono"><a href="/subject/ServiceAccount/{{ sa.name }}?namespace={{ ns }}">{{ sa.name }}</a></td>
+        <td class="mono dim" data-sort="{{ sa.creationTimestamp or '' }}" title="{{ sa.creationTimestamp }}">{{ sa.creationTimestamp|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Pods ({{ pods|length }})</h2>
+  {% if pods %}
+  <table class="dense sortable">
+    <thead><tr><th>Pod</th><th>Phase</th><th>SCC</th><th>ServiceAccount</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for p in pods %}
+      <tr {% if (p.annotations or {}).get('openshift.io/scc') == 'privileged' %}class="row-priv"{% endif %}>
+        <td class="mono">{{ p.name }}</td>
+        <td>{{ p.phase or "—" }}</td>
+        <td class="mono">
+          {% set scc = (p.annotations or {}).get('openshift.io/scc') %}
+          {% if scc %}<a href="/scc/{{ scc }}">{{ scc }}</a>{% else %}—{% endif %}
+        </td>
+        <td class="mono">{{ (p.spec or {}).get('serviceAccountName') or (p.spec or {}).get('serviceAccount') or 'default' }}</td>
+        <td class="mono dim" data-sort="{{ p.creationTimestamp or '' }}" title="{{ p.creationTimestamp }}">{{ p.creationTimestamp|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No pods running.</p>{% endif %}
+</section>
+
+{% if scc_summary %}
+<section>
+  <h2>SCC admissions in this namespace ({{ scc_summary|length }})</h2>
+  <p class="lede">Which SCCs admitted the pods running here, and how many.</p>
+  {% set n = scc_summary|length %}
+  {{ t.head(n, "SCCs") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>SCC</th><th>Pods</th><th>Privileged</th></tr></thead>
+    <tbody>
+      {% for s in scc_summary %}
+      <tr {% if s.privileged %}class="row-priv"{% endif %}>
+        <td class="mono"><a href="/scc/{{ s.name }}">{{ s.name }}</a></td>
+        <td class="mono">{{ s.pod_count }}</td>
+        <td>{% if s.privileged %}<span class="badge badge-priv">yes</span>{% else %}no{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+{% if cross_ns.incoming_rbs or cross_ns.incoming_crbs %}
+<section>
+  <h2>ServiceAccounts from this namespace used elsewhere</h2>
+  <p class="lede">Bindings outside <code>{{ ns }}</code> that grant access to SAs that live here.</p>
+
+  {% set rbn = cross_ns.incoming_rbs|length %}
+  <h3>Via RoleBindings in other namespaces ({{ rbn }})</h3>
+  {{ t.head(rbn, "bindings") }}
+  {% if rbn > 0 %}
+  <table class="dense">
+    <thead><tr><th>ServiceAccount</th><th>Binding</th><th>Role</th></tr></thead>
+    <tbody>
+      {% for e in cross_ns.incoming_rbs %}
+      <tr>
+        <td class="mono"><a href="/subject/ServiceAccount/{{ e.subject.name }}?namespace={{ ns }}">{{ e.subject.name }}</a></td>
+        <td class="mono">{{ e.binding.kind }}/{{ e.binding.name }} <span class="dim">in <a href="/namespace/{{ e.binding.namespace }}">{{ e.binding.namespace }}</a></span></td>
+        <td class="mono">
+          {% if e.role_kind == "ClusterRole" %}<a href="/clusterrole/{{ e.role }}">{{ e.role }}</a>
+          {% elif e.role_kind == "Role" %}<a href="/role/{{ e.binding.namespace }}/{{ e.role }}">{{ e.role }}</a>
+          {% else %}{{ e.role }}{% endif %}
+          {% if e.role in ('cluster-admin', 'admin') %} <span class="badge badge-priv">{{ e.role }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(rbn) }}
+
+  {% set crbn = cross_ns.incoming_crbs|length %}
+  <h3>Via ClusterRoleBindings ({{ crbn }})</h3>
+  {{ t.head(crbn, "bindings") }}
+  {% if crbn > 0 %}
+  <table class="dense">
+    <thead><tr><th>ServiceAccount</th><th>Binding</th><th>Role</th></tr></thead>
+    <tbody>
+      {% for e in cross_ns.incoming_crbs %}
+      <tr>
+        <td class="mono"><a href="/subject/ServiceAccount/{{ e.subject.name }}?namespace={{ ns }}">{{ e.subject.name }}</a></td>
+        <td class="mono">{{ e.binding.kind }}/{{ e.binding.name }}</td>
+        <td class="mono">
+          <a href="/clusterrole/{{ e.role }}">{{ e.role }}</a>
+          {% if e.role in ('cluster-admin', 'admin') %} <span class="badge badge-priv">{{ e.role }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(crbn) }}
+</section>
+{% endif %}
+
+{% if images_here or streams_here %}
+<section>
+  <h2>Images and ImageStreams here</h2>
+  {% if streams_here %}
+  <h3>ImageStreams owned by this namespace ({{ streams_here|length }})</h3>
+  <ul class="inline-list">
+    {% for s in streams_here %}<li class="mono">{{ s.name }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if images_here %}
+  {% set in = images_here|length %}
+  <h3>Images running here ({{ in }})</h3>
+  {{ t.head(in, "images") }}
+  {% if in > 0 %}
+  <table class="dense">
+    <thead><tr><th>Image</th><th>Registry</th><th>Containers</th></tr></thead>
+    <tbody>
+      {% for i in images_here %}
+      <tr>
+        <td class="mono"><a href="/image?ref={{ i.image }}">{{ i.image|short_image }}</a></td>
+        <td class="mono dim">{{ i.registry }}</td>
+        <td class="mono">{{ i.pod_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(in) }}
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <h2>RoleBindings ({{ rbs|length }})</h2>
+  {% if rbs %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Role</th><th>Subjects</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for b in rbs %}
+      {% set ref = b.roleRef or {} %}
+      <tr>
+        <td class="mono">{{ b.name }}</td>
+        <td>
+          {{ k.tag(ref.kind) }}
+          {% if ref.kind == "ClusterRole" %}
+            <a class="mono" href="/clusterrole/{{ ref.name }}">{{ ref.name }}</a>
+          {% elif ref.kind == "Role" %}
+            <a class="mono" href="/role/{{ ns }}/{{ ref.name }}">{{ ref.name }}</a>
+          {% else %}
+            <span class="mono">{{ ref.name }}</span>
+          {% endif %}
+          {% if ref.name in ('cluster-admin', 'admin') %}<span class="badge badge-priv">{{ ref.name }}</span>{% endif %}
+        </td>
+        <td>
+          {% for s in (b.subjects or []) %}
+            {{ k.tag(s.kind) }}<a class="mono" href="/subject/{{ s.kind }}/{{ s.name }}{% if s.namespace %}?namespace={{ s.namespace }}{% endif %}">{{ s.name }}</a>{% if s.namespace and s.namespace != ns %} <span class="dim mono">(<a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>)</span>{% endif %}{% if not loop.last %}, {% endif %}
+          {% else %}
+            <span class="dim">none</span>
+          {% endfor %}
+        </td>
+        <td class="mono dim" data-sort="{{ b.creationTimestamp or '' }}" title="{{ b.creationTimestamp }}">{{ b.creationTimestamp|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+{% set n = access_rows|length %}
+<section id="ns-access">
+  <h2>Subjects with access here ({{ access_total }})</h2>
+  <p class="lede">Subjects with namespace-effective access here — local RoleBindings, cluster-wide bindings with namespaced resource rules, cross-namespace SAs, groups, and system grants — in one table. Sorted by power so cluster-admin grants surface first. Filter by access bucket or subject kind.</p>
+
+  {% macro url_for_filter(b, kind) -%}
+    ?access_bucket={{ b }}&access_kind={{ kind }}#ns-access
+  {%- endmacro %}
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="{{ url_for_filter('yours', access_kind) }}" class="{% if access_bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ access_counts.yours }}</span></a>
+      <a href="{{ url_for_filter('unknown', access_kind) }}" class="{% if access_bucket == 'unknown' %}active{% endif %}" title="Subjects whose namespace could not be classified — review">Unclassified <span class="dim mono">{{ access_counts.unknown }}</span></a>
+      <a href="{{ url_for_filter('baseline', access_kind) }}" class="{% if access_bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ access_counts.baseline }}</span></a>
+      <a href="{{ url_for_filter('all', access_kind) }}" class="{% if access_bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ access_counts.all }}</span></a>
+    </div>
+  </div>
+
+  <div class="filterbar inline">
+    <a href="{{ url_for_filter(access_bucket, 'all') }}" class="{% if access_kind == 'all' %}active{% endif %}">All kinds <span class="dim mono">{{ access_kind_counts.all }}</span></a>
+    <a href="{{ url_for_filter(access_bucket, 'User') }}" class="{% if access_kind == 'User' %}active{% endif %}">Users <span class="dim mono">{{ access_kind_counts.User }}</span></a>
+    <a href="{{ url_for_filter(access_bucket, 'Group') }}" class="{% if access_kind == 'Group' %}active{% endif %}">Groups <span class="dim mono">{{ access_kind_counts.Group }}</span></a>
+    <a href="{{ url_for_filter(access_bucket, 'ServiceAccount') }}" class="{% if access_kind == 'ServiceAccount' %}active{% endif %}">ServiceAccounts <span class="dim mono">{{ access_kind_counts.ServiceAccount }}</span></a>
+  </div>
+
+  <p class="dim">{{ n }} row{{ '' if n == 1 else 's' }} shown · {{ access_total }} total
+    {% if access_bucket != 'all' or access_kind != 'User' %}
+    · <a href="{{ url_for_filter('all', 'User') }}">clear filters</a>
+    {% endif %}
+    {% if access_bucket == 'yours' and (access_counts.baseline or access_counts.unknown) %}
+    <br><em>Hidden by filter: {{ access_counts.baseline }} baseline (e.g. Group/system:masters &rarr; cluster-admin), {{ access_counts.unknown }} unclassified-ns. Switch to Baseline or All to see them.</em>
+    {% endif %}
+  </p>
+
+  {% if n == 0 %}
+  <p class="dim">No subjects match the current filters.</p>
+  {% else %}
+  <table class="dense sortable">
+    <thead>
+      <tr><th>Subject</th><th>Role</th><th>Scope</th><th>Binding</th><th>Source</th></tr>
+    </thead>
+    <tbody>
+      {% for a in access_rows %}
+      <tr {% if a.ghost %}class="row-ghost"{% elif a.stranded or a.latent %}class="row-warn"{% elif a.baseline %}class="row-baseline"{% elif a.unknown %}class="row-warn"{% endif %}>
+        <td>
+          {{ k.tag(a.subject.kind) }}
+          <a class="mono" href="/subject/{{ a.subject.kind }}/{{ a.subject.name }}{% if a.subject.namespace %}?namespace={{ a.subject.namespace }}{% endif %}">{{ a.subject.name }}</a>
+          {% if a.subject.namespace %}<span class="dim mono">(<a href="/namespace/{{ a.subject.namespace }}">{{ a.subject.namespace }}</a>)</span>{% endif %}
+          {{ m.badges(a) }}
+        </td>
+        <td>
+          {% if a.role_kind == "ClusterRole" %}<a class="mono" href="/clusterrole/{{ a.role }}">{% if a.role in ('cluster-admin', 'admin') %}<span class="badge badge-priv">{{ a.role }}</span>{% else %}{{ a.role }}{% endif %}</a>
+          {% elif a.role_kind == "Role" %}<a class="mono" href="/role/{{ ns }}/{{ a.role }}">{% if a.role in ('cluster-admin', 'admin') %}<span class="badge badge-priv">{{ a.role }}</span>{% else %}{{ a.role }}{% endif %}</a>
+          {% elif a.role in ('cluster-admin', 'admin') %}<span class="badge badge-priv">{{ a.role }}</span>
+          {% else %}<span class="mono">{{ a.role }}</span>{% endif %}
+        </td>
+        <td class="mono dim">{{ a.scope }}</td>
+        <td class="mono">{{ a.binding.kind }}/{{ a.binding.name }}</td>
+        <td class="mono dim">{{ a.category_label }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

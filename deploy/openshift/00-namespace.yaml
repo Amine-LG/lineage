@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage

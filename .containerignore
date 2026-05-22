@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+docs
+tests
+requirements-dev.txt
+deploy

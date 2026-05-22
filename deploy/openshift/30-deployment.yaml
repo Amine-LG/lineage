@@ -1,0 +1,80 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lineage
+  namespace: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lineage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lineage
+    spec:
+      serviceAccountName: lineage
+      containers:
+        - name: lineage
+          # Points at the in-cluster image registry. The BuildConfig
+          # writes `lineage:latest` to this namespace's ImageStream, so
+          # the pod pulls without a pull secret.
+          image: image-registry.openshift-image-registry.svc:5000/lineage-incluster/lineage:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: LINEAGE_HOST
+              value: "0.0.0.0"
+            - name: LINEAGE_PORT
+              value: "8080"
+          # /healthz is a cheap Flask route that does not touch the
+          # cluster or the cache.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          # Modest defaults. Cold rebuild is dominated by ~16 sequential
+          # `oc get` calls — bump if your cluster needs faster refresh.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lineage
+  namespace: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage
+spec:
+  selector:
+    app.kubernetes.io/name: lineage
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

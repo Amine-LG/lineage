@@ -1,0 +1,29 @@
+{# Identity markers for a subject row.
+
+   Renders the badge set used across home, subjects, subject_detail,
+   privileged, permission_grants, and namespace_detail tables. Order is
+   severity-descending so the most actionable flag is leftmost.
+
+   `item` is expected to have any of:
+     ghost, latent, stranded, phantom, htpasswd_backed.
+   Missing keys render nothing.
+#}
+{% macro badges(item) -%}
+{% if item.ghost %}<span class="badge badge-warn">ghost</span>{% endif %}
+{% if item.virtual %}<span class="badge badge-info" title="Synthesized by the apiserver — no Group object exists; membership is computed per-request from the authenticated identity.">virtual</span>{% endif %}
+{% if item.latent %}<span class="badge badge-warn">latent</span>{% endif %}
+{% if item.stranded %}<span class="badge badge-warn">No ID</span>{% endif %}
+{% if item.phantom %}<span class="badge badge-warn">phantom</span>{% endif %}
+{% if item.htpasswd_backed %}<span class="badge badge-info" title="A line for this username exists in the HTPasswd Secret backing an HTPasswd IdP.">htpasswd-backed</span>{% endif %}
+{%- endmacro %}
+
+{# Same set, addressed by individual booleans for templates (like
+   subject_detail.html) that carry the flags as scalars rather than
+   row dicts. #}
+{% macro header_badges(ghost=False, latent=False, stranded=False,
+                       phantom=False, htpasswd_backed=False,
+                       virtual=False) -%}
+{{ badges({"ghost": ghost, "virtual": virtual, "latent": latent,
+           "stranded": stranded, "phantom": phantom,
+           "htpasswd_backed": htpasswd_backed}) }}
+{%- endmacro %}

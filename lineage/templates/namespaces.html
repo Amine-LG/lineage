@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Namespaces{% endblock %}
+
+{% macro cat_badge(cat) -%}
+  {% if cat == 'project' %}<span class="badge badge-info" title="OpenShift Project (carries openshift.io/requester)">project</span>
+  {% elif cat == 'openshift' %}<span class="badge badge-sys" title="OpenShift platform">openshift</span>
+  {% elif cat == 'system' %}<span class="badge badge-sys" title="Kubernetes core">system</span>
+  {% elif cat == 'unknown' %}<span class="badge badge-warn" title="No signal — review and add a custom rule if needed">unclassified</span>
+  {% endif %}
+{%- endmacro %}
+
+{% block content %}
+
+<section id="namespaces-list">
+  <h1>Namespaces</h1>
+  <p class="lede">Classified from the OpenShift requester annotation and known platform name patterns. Click a namespace to see which signal decided.</p>
+  <p class="dim"><strong>Unclassified</strong> = no signal matched → review-worthy, not "bad". Often <code>oc create namespace</code> outside the install window.</p>
+
+  {% if deleted_namespaces %}
+  <div class="banner banner-warn">
+    <strong>{{ deleted_namespaces|length }} deleted namespace{{ '' if deleted_namespaces|length == 1 else 's' }} still grant{{ 's' if deleted_namespaces|length == 1 else '' }} privilege.</strong>
+    <ul class="inline-list" style="margin-top:6px;">
+      {% for d in deleted_namespaces %}
+      <li class="mono">
+        <a href="/namespace/{{ d.namespace }}">{{ d.namespace }}</a>
+        {% if d.max_severity == 'critical' %}<span class="badge badge-priv">critical</span>
+        {% elif d.max_severity == 'high' %}<span class="badge badge-priv">high</span>
+        {% elif d.max_severity == 'medium' %}<span class="badge badge-warn">medium</span>
+        {% else %}<span class="badge badge-info">low</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    <a href="/identity-audit">Open Identity Audit →</a>
+  </div>
+  {% endif %}
+
+  <div class="filterbar">
+    <a href="?category=all#namespaces-list" class="{% if category == 'all' %}active{% endif %}">All <span class="dim mono">{{ counts.all }}</span></a>
+    <span>·</span>
+    <a href="?category=mine#namespaces-list" class="{% if category == 'mine' %}active{% endif %}" title="Projects you personally requested ({{ current_user or '?' }})">Mine <span class="dim mono">{{ counts.mine }}</span></a>
+    <a href="?category=project#namespaces-list" class="{% if category == 'project' %}active{% endif %}">Projects <span class="dim mono">{{ counts.project }}</span></a>
+    <a href="?category=unknown#namespaces-list" class="{% if category == 'unknown' %}active{% endif %}" title="Namespaces no signal could classify confidently — review and add a custom rule if needed">Unclassified <span class="dim mono">{{ counts.unknown }}</span></a>
+    <span>·</span>
+    <a href="?category=openshift#namespaces-list" class="{% if category == 'openshift' %}active{% endif %}">OpenShift <span class="dim mono">{{ counts.openshift }}</span></a>
+    <a href="?category=system#namespaces-list" class="{% if category == 'system' %}active{% endif %}">System <span class="dim mono">{{ counts.system }}</span></a>
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#ns-table" data-filter-counter="#ns-counter">
+  </div>
+
+  <p class="dim"><span id="ns-counter">{{ rows|length }}</span> namespaces shown ({{ counts.all }} total)</p>
+
+  {% if not rows %}
+  <p class="dim">No namespaces in this view.</p>
+  {% else %}
+  <table class="dense sortable" id="ns-table">
+    <thead><tr>
+      <th>Namespace</th><th>Created by</th><th>Category</th><th>Created</th><th>SAs</th><th>Pods</th><th>RoleBindings</th><th>Highest in-ns role</th><th>Privileged pods</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr {% if r.has_privileged_pods %}class="row-priv"{% elif r.baseline %}class="row-baseline"{% endif %}>
+        <td class="mono">
+          <a href="/namespace/{{ r.namespace }}">{{ r.namespace }}</a>
+        </td>
+        <td class="mono">{% if r.owner %}{{ r.owner }}{% else %}<span class="dim">—</span>{% endif %}</td>
+        <td data-sort="{{ r.category }}">{{ cat_badge(r.category) }}</td>
+        <td class="mono dim" data-sort="{{ r.creation_ts or '' }}" title="{{ r.creation_ts }}">{{ r.creation_ts|humanage }}</td>
+        <td class="mono">{{ r.sas_count }}</td>
+        <td class="mono">{{ r.pods_count }}</td>
+        <td class="mono">{{ r.rolebindings_count }}</td>
+        <td class="highest-role-cell" data-sort="{{ r.highest_tier }}">
+          {% if r.highest_role_in_ns %}
+            {% if r.highest_tier >= 4 %}<span class="badge badge-priv role-badge">{{ r.highest_role_in_ns }}</span>
+            {% else %}<span class="mono">{{ r.highest_role_in_ns }}</span>{% endif %}
+          {% else %}<span class="dim">—</span>{% endif %}
+        </td>
+        <td>{% if r.has_privileged_pods %}<span class="badge badge-priv">yes</span>{% else %}no{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

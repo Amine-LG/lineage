@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+{% block title %}Identity audit{% endblock %}
+{% block content %}
+
+<section id="identity-providers">
+  <h1>Identity audit</h1>
+  <p class="lede">What can authenticate, what's stale, and which name strings still grant access after their backing object is gone.</p>
+
+  {% if not cluster_status.is_admin %}
+  <div class="banner banner-warn">
+    <strong>Limited view.</strong> Needs cluster-admin to read all Users, Identities, Groups, ServiceAccounts, SCCs, and Secrets.
+  </div>
+  {% endif %}
+
+  {% if htpasswd_configured and not htpasswd_available %}
+  <div class="banner" id="htpasswd-degraded">
+    <strong>HTPasswd checks degraded.</strong> Backing Secret in <code>openshift-config</code> unreadable{% if htpasswd_reason %} (<span class="mono dim">{{ htpasswd_reason }}</span>){% endif %}. Latent, phantom, and htpasswd-backed markers are unavailable until it succeeds.
+  </div>
+  {% endif %}
+
+  {% if self_provisioner %}
+  <div class="posture-pill posture-{{ self_provisioner.state }}" id="self-provisioner-posture">
+    <strong>Self-provisioner:</strong>
+    {% if self_provisioner.state == 'enabled' %}<span class="posture-tag">enabled</span>
+    {% elif self_provisioner.state == 'unknown' %}<span class="posture-tag">unknown</span>
+    {% else %}<span class="posture-tag">disabled</span>
+    {% endif %}
+    <span class="dim">— {{ self_provisioner.reason }}</span>
+  </div>
+  {% endif %}
+</section>
+
+<section id="resurrectable">
+  <h2>1. Resurrectable identities and SCC groups
+    <span class="dim">({{ audit.resurrectable_sas|length + audit.resurrectable_implicit_groups|length }})</span></h2>
+  <p class="lede">Grants that name a missing subject. Recreating the name re-arms them.</p>
+
+  {% set combined_critical = (audit.resurrectable_critical|length) + (audit.resurrectable_implicit_critical|length) %}
+  {% if combined_critical %}
+  <div class="banner banner-warn">
+    <strong>{{ combined_critical }} critical</strong> — recreation would unlock <code>cluster-admin</code> or a privileged SCC.
+  </div>
+  {% endif %}
+
+  <div class="filterbar">
+    <a href="?severity=all{% if show_all %}&show_all=1{% endif %}#resurrectable" class="{% if severity == 'all' %}active{% endif %}">All <span class="dim mono">{{ severity_counts.all }}</span></a>
+    <a href="?severity=critical{% if show_all %}&show_all=1{% endif %}#resurrectable" class="{% if severity == 'critical' %}active{% endif %}">Critical <span class="dim mono">{{ severity_counts.critical }}</span></a>
+    <a href="?severity=high{% if show_all %}&show_all=1{% endif %}#resurrectable" class="{% if severity == 'high' %}active{% endif %}">High <span class="dim mono">{{ severity_counts.high }}</span></a>
+    <a href="?severity=medium{% if show_all %}&show_all=1{% endif %}#resurrectable" class="{% if severity == 'medium' %}active{% endif %}">Medium <span class="dim mono">{{ severity_counts.medium }}</span></a>
+    <a href="?severity=low{% if show_all %}&show_all=1{% endif %}#resurrectable" class="{% if severity == 'low' %}active{% endif %}">Low <span class="dim mono">{{ severity_counts.low }}</span></a>
+  </div>
+
+  {# SCC implicit-SA groups go FIRST — more surprising, more dangerous
+     because no old SA name has to match. Two row shapes share this
+     section: `implicit-sa-group` (missing namespace) and
+     `ghost-scc-subject` (missing User or named-Group subject). #}
+  {% set _impl_ns = resurrectable_implicit_filtered|selectattr('kind','equalto','implicit-sa-group')|list %}
+  {% set _impl_ghost = resurrectable_implicit_filtered|selectattr('kind','equalto','ghost-scc-subject')|list %}
+  {% set _impl_target = resurrectable_implicit_filtered|selectattr('kind','equalto','ghost-scc-target')|list %}
+  {% if _impl_ns %}
+  <section id="resurrectable-implicit-groups" class="callout-priv">
+    <h3>SCC implicit-SA groups <span class="dim">({{ _impl_ns|length }})</span></h3>
+    <p class="lede"><code>system:serviceaccounts:&lt;ns&gt;</code> entries whose target namespace is gone. Recreating it puts every SA inside under this SCC.</p>
+    <table class="dense sortable">
+      <thead><tr>
+        <th>SCC</th><th>Group</th><th>Namespace</th><th>Severity</th><th>Detail</th>
+      </tr></thead>
+      <tbody>
+        {% for r in _impl_ns %}
+        <tr class="{% if r.severity == 'critical' %}row-priv{% elif r.severity == 'high' %}row-warn{% endif %}">
+          <td class="mono"><a href="/scc/{{ r.scc }}">{{ r.scc }}</a></td>
+          <td class="mono"><a href="/subject/Group/{{ r.group }}">{{ r.group }}</a></td>
+          <td class="mono">{{ r.namespace }} <span class="badge badge-warn">deleted</span></td>
+          <td>
+            {% if r.severity == 'critical' %}<span class="badge badge-priv">critical</span>
+            {% elif r.severity == 'high' %}<span class="badge badge-priv">high</span>
+            {% elif r.severity == 'medium' %}<span class="badge badge-warn">medium</span>
+            {% else %}<span class="badge badge-info">low</span>{% endif %}
+          </td>
+          <td class="dim">{{ r.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if _impl_ghost %}
+  <section id="resurrectable-ghost-scc-subjects" class="callout-priv">
+    <h3>SCC grants to ghost subjects <span class="dim">({{ _impl_ghost|length }})</span></h3>
+    <p class="lede"><code>oc adm policy add-scc-to-{user,group}</code> grants whose User or Group does not currently exist. Creating that subject (or mapping any OAuth identity to it) makes the SCC grant live.</p>
+    <table class="dense sortable">
+      <thead><tr>
+        <th>SCC</th><th>Subject</th><th>Severity</th><th>Bound by</th><th>Detail</th>
+      </tr></thead>
+      <tbody>
+        {% for r in _impl_ghost %}
+        <tr class="{% if r.severity == 'critical' %}row-priv{% elif r.severity == 'high' %}row-warn{% endif %}">
+          <td class="mono"><a href="/scc/{{ r.scc }}">{{ r.scc }}</a></td>
+          <td class="mono">
+            <a href="/subject/{{ r.subject_kind }}/{{ r.subject_name }}">{{ r.subject_kind }}/{{ r.subject_name }}</a>
+            <span class="badge badge-warn">ghost</span>
+          </td>
+          <td>
+            {% if r.severity == 'critical' %}<span class="badge badge-priv">critical</span>
+            {% elif r.severity == 'high' %}<span class="badge badge-priv">high</span>
+            {% elif r.severity == 'medium' %}<span class="badge badge-warn">medium</span>
+            {% else %}<span class="badge badge-info">low</span>{% endif %}
+          </td>
+          <td class="mono">{{ r.binding_kind }}/{{ r.binding_name }}</td>
+          <td class="dim">{{ r.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if _impl_target %}
+  <section id="resurrectable-ghost-scc-targets" class="callout-priv">
+    <h3>SCC grants to non-existent SCCs <span class="dim">({{ _impl_target|length }})</span></h3>
+    <p class="lede"><code>oc adm policy add-scc-to-{user,group} &lt;missing-scc&gt;</code> creates RBAC against an SCC that does not exist. Severity stays low while the SCC is absent — but if anyone later creates an SCC with that exact name, every bound subject gains its privileges instantly. Watch this list: it auto-escalates the moment the SCC posture is known.</p>
+    <table class="dense sortable">
+      <thead><tr>
+        <th>SCC (missing)</th><th>Subject</th><th>Severity</th><th>Bound by</th><th>Detail</th>
+      </tr></thead>
+      <tbody>
+        {% for r in _impl_target %}
+        <tr class="row-baseline">
+          <td class="mono">{{ r.scc }} <span class="badge badge-warn">missing SCC</span></td>
+          <td class="mono">
+            {% if r.subject_kind == 'ServiceAccount' and r.subject_namespace %}
+              <a href="/subject/ServiceAccount/{{ r.subject_name }}?namespace={{ r.subject_namespace }}">{{ r.subject_kind }}/{{ r.subject_namespace }}/{{ r.subject_name }}</a>
+            {% else %}
+              <a href="/subject/{{ r.subject_kind }}/{{ r.subject_name }}">{{ r.subject_kind }}/{{ r.subject_name }}</a>
+            {% endif %}
+            {% if not r.subject_present %}<span class="badge badge-warn">ghost</span>{% endif %}
+          </td>
+          <td><span class="badge badge-info">{{ r.severity }}</span></td>
+          <td class="mono">{{ r.binding_kind }}/{{ r.binding_name }}</td>
+          <td class="dim">{{ r.explanation }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {# Then the existing ServiceAccount identity-resurrection table. #}
+  <section id="resurrectable-serviceaccounts">
+    <h3>ServiceAccount identities <span class="dim">({{ resurrectable_filtered|length }})</span></h3>
+    {% if resurrectable_filtered %}
+    <div class="table-controls">
+      <input type="search" class="table-filter" placeholder="Filter table..."
+             aria-label="Filter resurrectable ServiceAccounts"
+             data-filter-target="#resurrectable-table">
+    </div>
+      {% with items = resurrectable_filtered, table_id = "resurrectable-table" %}{% include "_resurrectable_table.html" %}{% endwith %}
+    {% else %}
+      <p class="dim">{% if severity == 'critical' %}No critical ServiceAccount findings.{% else %}No {{ severity }} resurrectable ServiceAccount identities.{% endif %}</p>
+    {% endif %}
+  </section>
+
+  {# Baseline / platform-protected findings. Hidden by default; visible
+     when severity=all OR ?show_all=1. They are stale references whose
+     target namespace name (openshift-*/kube-*/baseline) cannot be
+     created via self-provisioning, so they are not developer-actionable
+     and never drive the home dashboard counters. #}
+  {% set _baseline_total = resurrectable_baseline_total + resurrectable_implicit_baseline_total %}
+  {% if _baseline_total %}
+    {% if show_baseline %}
+    <section id="resurrectable-baseline">
+      <h3>Baseline / platform findings <span class="dim">({{ _baseline_total }})</span></h3>
+      <p class="lede">Stale references whose target namespace is platform-protected (<code>openshift-*</code>, <code>kube-*</code>, or a known baseline). A normal user cannot recreate these namespaces via <code>oc new-project</code>; project-request admission blocks the name. Kept here for completeness — not counted in the actionable totals above.</p>
+      {% if resurrectable_implicit_baseline %}
+      <details open>
+        <summary>SCC implicit-SA groups / future targets <span class="dim">({{ resurrectable_implicit_baseline|length }})</span></summary>
+        <table class="dense">
+          <thead><tr><th>SCC</th><th>Subject/group</th><th>Namespace</th><th>Severity</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for r in resurrectable_implicit_baseline %}
+            <tr class="row-baseline">
+              <td class="mono">
+                {% if r.kind == 'ghost-scc-target' %}
+                  {{ r.scc }} <span class="badge badge-warn">missing SCC</span>
+                {% else %}
+                  <a href="/scc/{{ r.scc }}">{{ r.scc }}</a>
+                {% endif %}
+              </td>
+              <td class="mono">
+                {% if r.kind == 'ghost-scc-target' %}
+                  {% if r.subject_kind == 'ServiceAccount' and r.subject_namespace %}
+                    {{ r.subject_kind }}/{{ r.subject_namespace }}/{{ r.subject_name }}
+                  {% else %}
+                    {{ r.subject_kind }}/{{ r.subject_name }}
+                  {% endif %}
+                {% else %}
+                  {{ r.group }}
+                {% endif %}
+              </td>
+              <td class="mono">{% if r.namespace %}{{ r.namespace }}{% else %}<span class="dim">-</span>{% endif %} <span class="badge badge-sys">baseline</span></td>
+              <td><span class="badge badge-info">{{ r.severity }}</span></td>
+              <td class="dim">{{ r.baseline_reason or r.explanation }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endif %}
+      {% if resurrectable_baseline %}
+      <details open>
+        <summary>ServiceAccount identities <span class="dim">({{ resurrectable_baseline|length }})</span></summary>
+        <table class="dense">
+          <thead><tr><th>Principal</th><th>Severity</th><th>Grants</th><th>Reason</th></tr></thead>
+          <tbody>
+            {% for r in resurrectable_baseline %}
+            <tr class="row-baseline">
+              <td class="mono">{{ r.principal }} <span class="badge badge-sys">baseline</span></td>
+              <td><span class="badge badge-info">{{ r.severity }}</span></td>
+              <td class="dim">{{ r.grant_count }} grant{{ '' if r.grant_count == 1 else 's' }}</td>
+              <td class="dim">{{ r.baseline_reason }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endif %}
+    </section>
+    {% else %}
+    <p class="dim"><strong>{{ _baseline_total }}</strong> baseline / platform finding{{ '' if _baseline_total == 1 else 's' }} hidden (admission-protected namespaces). <a href="?severity=all#resurrectable-baseline">Show baseline</a></p>
+    {% endif %}
+  {% endif %}
+
+  {% if audit.deleted_namespaces %}
+  <section id="deleted-namespaces" class="callout-priv">
+    <h3>Deleted namespaces with surviving privilege ({{ audit.deleted_namespaces|length }})</h3>
+    <p class="lede">Click any principal to open the surviving-grants view. A future <code>oc new-project &lt;ns&gt;</code> would re-arm these.</p>
+    <table class="dense">
+      <thead><tr><th>Namespace</th><th>Max severity</th><th>Resurrectable principals</th></tr></thead>
+      <tbody>
+        {% for d in audit.deleted_namespaces %}
+        <tr>
+          <td class="mono">{{ d.namespace }} <span class="badge badge-priv">deleted</span></td>
+          <td>
+            {% if d.max_severity == 'critical' %}<span class="badge badge-priv">critical</span>
+            {% elif d.max_severity == 'high' %}<span class="badge badge-priv">high</span>
+            {% elif d.max_severity == 'medium' %}<span class="badge badge-warn">medium</span>
+            {% else %}<span class="badge badge-info">low</span>{% endif %}
+          </td>
+          <td class="mono">
+            {% for p in d.principals %}<a href="/subject/ServiceAccount/{{ p.name }}?namespace={{ d.namespace }}">{{ p.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+</section>
+
+<section id="identity-anomalies">
+  <h2>2. Latent users <span class="dim">({{ audit.latent_users|length }})</span></h2>
+  <p class="lede">In an IdP or Group, no <code>User</code> object yet. Become active on first login and inherit any pre-existing bindings.</p>
+
+  {% if audit.latent_users %}
+  <table class="dense sortable">
+    <thead><tr><th>Username</th><th>Source</th><th>Where</th></tr></thead>
+    <tbody>
+      {% for u in audit.latent_users %}
+      <tr class="row-warn">
+        <td class="mono"><a href="/subject/User/{{ u.username }}">{{ u.username }}</a></td>
+        <td>
+          {% if u.source == "htpasswd" %}<span class="badge badge-warn">htpasswd</span>
+          {% elif u.source == "group" %}<span class="badge badge-warn">group-listed</span>
+          {% else %}<span class="badge badge-warn">{{ u.source }}</span>{% endif %}
+        </td>
+        <td class="mono dim">{{ u.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section>
+  <h2>3. Phantom users <span class="dim">({{ audit.phantom_users|length }})</span></h2>
+  <p class="lede"><code>User</code> + <code>Identity</code> exist, IdP no longer recognises them. Restoring the IdP entry re-arms their bindings.</p>
+
+  {% if audit.phantom_users %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Reason</th><th>Provider(s)</th></tr></thead>
+    <tbody>
+      {% for u in audit.phantom_users %}
+      <tr class="row-warn">
+        <td class="mono"><a href="/subject/User/{{ u.name }}">{{ u.name }}</a></td>
+        <td>{{ u.reasons|join("; ") }}</td>
+        <td class="mono dim">{{ u.providers|join(", ") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section id="bound-ghosts">
+  <h2>4. Bound ghosts <span class="dim">({{ audit.bound_ghosts|length }})</span></h2>
+  {% if not cluster_status.is_admin %}
+  <p class="dim">Needs cluster-admin to read all Users, Groups, and ServiceAccounts.</p>
+  {% else %}
+  <p class="lede">Bindings reference a subject with no backing object. Activate the moment the name appears.</p>
+
+  {% if audit.hidden_ghost_count and not show_all %}
+  <p class="dim ghost-note">
+    <strong>{{ audit.hidden_ghost_count }} baseline ghost{{ '' if audit.hidden_ghost_count == 1 else 's' }} hidden.</strong> <a href="?severity={{ severity }}&show_all=1#bound-ghosts">Show all</a>
+  </p>
+  {% elif show_all %}
+  <p class="dim ghost-note">Showing baseline ghosts too. <a href="/identity-audit?severity={{ severity }}#bound-ghosts">Hide baseline</a></p>
+  {% endif %}
+
+  {% if audit.bound_ghosts %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Kind</th><th>Created</th><th>Bound by (grants)</th><th>Category</th></tr></thead>
+    <tbody>
+      {% for g in audit.bound_ghosts %}
+      <tr class="{% if g.category == 'real' %}row-ghost{% else %}row-baseline{% endif %}">
+        <td class="mono">
+          {% if g.subject.kind == "ServiceAccount" and g.subject.namespace %}<a href="/subject/ServiceAccount/{{ g.subject.name }}?namespace={{ g.subject.namespace }}">{{ g.subject.name }}</a>
+          {% else %}<a href="/subject/{{ g.subject.kind }}/{{ g.subject.name }}">{{ g.subject.name }}</a>{% endif %}
+          {% if g.subject.namespace %} <span class="dim">(<a href="/namespace/{{ g.subject.namespace }}">{{ g.subject.namespace }}</a>)</span>{% endif %}
+          <span class="badge badge-warn">ghost</span>
+        </td>
+        <td>{{ g.subject.kind }}</td>
+        <td class="mono" data-sort="{{ g.creation_ts or '' }}">{{ g.creation_ts|humanage }}</td>
+        <td class="mono">
+          {% for grant in g.grants %}{{ grant.kind }}/{{ grant.name }}{% if grant.namespace %} <span class="dim">in {{ grant.namespace }}</span>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% if g.grant_count > 1 %}<div class="dim">{{ g.grant_count }} bindings</div>{% endif %}
+        </td>
+        <td>
+          {% if g.category == 'real' %}<strong>real anomaly</strong>
+          {% elif g.category == 'scc' %}<span class="badge badge-info">SCC leftover</span>
+          {% else %}<span class="badge badge-sys">baseline</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+  {% endif %}
+</section>
+
+<section>
+  <h2>5. Stranded users <span class="dim">({{ audit.stranded_users|length }})</span></h2>
+  <p class="lede"><code>User</code> exists, no <code>Identity</code> links it to an IdP.</p>
+  {% if audit.stranded_users %}
+  <table class="dense sortable">
+    <thead><tr><th>User</th><th>Identity link</th><th>Subject page</th></tr></thead>
+    <tbody>
+      {% for u in audit.stranded_users %}
+      <tr class="row-warn">
+        <td class="mono"><a href="/subject/User/{{ u.name }}">{{ u.name }}</a></td>
+        <td><span class="badge badge-warn">No ID</span></td>
+        <td><a href="/subject/User/{{ u.name }}">Open permissions</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section>
+  <h2>6. Orphan identities <span class="dim">({{ audit.orphan_identities|length }})</span></h2>
+  <p class="lede"><code>Identity</code> points to a <code>User</code> that doesn't exist.</p>
+  {% if audit.orphan_identities %}
+  <table class="dense sortable">
+    <thead><tr><th>Missing user</th><th>Identity</th><th>Provider</th></tr></thead>
+    <tbody>
+      {% for o in audit.orphan_identities %}
+      <tr>
+        <td class="mono"><a href="/subject/User/{{ o.missing_user }}">{{ o.missing_user }}</a></td>
+        <td class="mono">{{ o.identity }}</td>
+        <td>{{ o.provider or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Identity providers</h2>
+  <p class="lede">HTPasswd is auditable from the backing Secret. LDAP/OIDC are not.</p>
+  {% if audit.idps_auditable or audit.idps_non_auditable %}
+  <table class="dense sortable">
+    <thead><tr><th>Provider</th><th>Type</th><th>Audit support</th></tr></thead>
+    <tbody>
+      {% for i in audit.idps_auditable %}
+      <tr>
+        <td class="mono"><a href="#identity-providers">{{ i.name }}</a></td>
+        <td>{{ i.type }}</td>
+        <td><span class="badge badge-info">auditable</span></td>
+      </tr>
+      {% endfor %}
+      {% for i in audit.idps_non_auditable %}
+      <tr>
+        <td class="mono"><a href="#identity-providers">{{ i.name }}</a></td>
+        <td>{{ i.type }}</td>
+        <td><span class="badge badge-sys">not auditable</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+{% endblock %}

@@ -1,0 +1,7 @@
+{% macro slug(kind) -%}
+{{- kind|string|lower|replace(" ", "-")|replace(":", "-")|replace("/", "-")|replace(".", "-")|replace("_", "-") -}}
+{%- endmacro %}
+
+{% macro tag(kind) -%}
+<span class="kind-tag kind-{{ slug(kind) }}">{{ kind }}</span>
+{%- endmacro %}

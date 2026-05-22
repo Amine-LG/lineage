@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Aggregated roles{% endblock %}
+{% import "_rule_cells.html" as rc %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated" class="active">Aggregated</a>
+</div>
+
+<section>
+  <h1>Aggregated ClusterRoles</h1>
+  <p class="lede">
+    Roles whose <code>aggregationRule</code> selects component <code>ClusterRoles</code> by label.
+    The real ruleset is the live union — what you see below is what the role <em>actually grants right now</em>,
+    with each rule annotated by its source component.
+  </p>
+
+  {% if not rows %}
+    <p class="dim">No aggregated roles in this cluster.</p>
+  {% else %}
+    <div class="toolbar">
+      <input type="search" class="search mono" placeholder="filter…"
+             data-filter-target="#aggregated-roles-table" data-filter-counter="#aggregated-counter">
+    </div>
+
+    <p class="dim"><span id="aggregated-counter">{{ rows|length }}</span> aggregated roles, newest first by creation date.</p>
+
+    <table class="dense sortable" id="aggregated-roles-table">
+      <thead><tr>
+        <th>Name</th><th>Created</th><th>Components</th><th>Computed rules</th><th>Selectors</th>
+      </tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="mono"><a href="/clusterrole/{{ row.name }}">{{ row.name }}</a></td>
+          <td class="mono dim" data-sort="{{ row.creation_ts or '' }}" title="{{ row.creation_ts }}">{{ row.creation_ts|humanage }}</td>
+          <td class="mono" data-sort="{{ row.components|length }}">{{ row.components|length }}</td>
+          <td class="mono" data-sort="{{ row.rules|length }}">{{ row.rules|length }}</td>
+          <td class="mono dim">{{ row.selector_text }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if rows %}
+  <div class="section-divider">
+    <h2>Role details</h2>
+    <p class="dim">Expand a role to see its component ClusterRoles and computed rules.</p>
+  </div>
+
+  <div class="agg-detail-list">
+    {% for row in rows %}
+    <details class="agg-card">
+      <summary>
+        <div class="agg-summary-main">
+          <span class="mono agg-title">{{ row.name }}</span>
+          <span class="dim mono" title="{{ row.creation_ts }}">{{ row.creation_ts|humanage or "not available" }}</span>
+        </div>
+        <div class="agg-summary-meta">
+          <span><strong>{{ row.components|length }}</strong> component{{ '' if row.components|length == 1 else 's' }}</span>
+          <span><strong>{{ row.rules|length }}</strong> computed rule{{ '' if row.rules|length == 1 else 's' }}</span>
+          <span class="mono dim">{{ row.selector_text }}</span>
+        </div>
+      </summary>
+
+      <div class="agg-details-body">
+        <div class="path-meta">
+          Open role detail:
+          <a class="mono" href="/clusterrole/{{ row.name }}">{{ row.name }}</a>
+        </div>
+
+        <div class="path-meta">
+          Selectors:
+          {% for part in row.selector_parts %}
+            <span class="mono">{{ part }}</span>
+            {% if not loop.last %} · {% endif %}
+          {% else %}
+            <span class="mono dim">none</span>
+          {% endfor %}
+        </div>
+
+        <h3>Component ClusterRoles ({{ row.components|length }})</h3>
+        {% if row.components %}
+        <table class="dense sortable no-filter">
+          <thead><tr>
+            <th>Component</th><th>Created</th><th>Rules</th><th>Matching labels</th>
+          </tr></thead>
+          <tbody>
+          {% for c in row.components %}
+            <tr>
+              <td class="mono"><a href="/clusterrole/{{ c.name }}">{{ c.name }}</a></td>
+              <td class="mono dim" data-sort="{{ c.creation_ts or '' }}" title="{{ c.creation_ts }}">{{ c.creation_ts|humanage }}</td>
+              <td class="mono" data-sort="{{ c.rule_count }}">{{ c.rule_count }}</td>
+              <td class="mono dim">{{ c.matched_labels }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="dim">No component ClusterRoles currently match the selectors.</p>
+        {% endif %}
+
+        <h3>Computed rules ({{ row.rules|length }})</h3>
+        <table class="dense rules-table sortable">
+          <thead><tr>
+            <th>API group</th><th>Resources</th><th>Verbs</th><th>From</th>
+          </tr></thead>
+          <tbody>
+            {% for r in row.rules %}
+            <tr>
+              {{ rc.api_group_cell(r) }}
+              {{ rc.resources_cell(r) }}
+              {{ rc.verbs_cell(r) }}
+              <td class="mono dim">{% if r._from %}<a href="/clusterrole/{{ r._from }}">{{ r._from }}</a>{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+{% endblock %}

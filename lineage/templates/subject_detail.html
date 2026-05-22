@@ -1,0 +1,599 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.name }}{% endblock %}
+{% import "_thresh.html" as t %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% import "_back.html" as back %}
+{% import "_rule_cells.html" as rc %}
+{% block content %}
+
+<section>
+  {{ back.back("/subjects") }}
+  <div class="subject-head">
+    <h1>
+      {{ k.tag(subject.kind) }}
+      <span class="mono">{{ subject.name }}</span>
+      {% if subject.namespace %}<span class="dim mono">in {{ subject.namespace }}</span>{% endif %}
+      {{ m.header_badges(ghost=is_ghost, latent=is_latent,
+                          stranded=is_stranded, phantom=is_phantom,
+                          htpasswd_backed=is_htpasswd_backed,
+                          virtual=is_virtual_group) }}
+    </h1>
+  </div>
+
+  {% if is_virtual_group %}
+  <div class="banner">
+    <strong>Virtual / system group.</strong> {{ virtual_group_note|safe }}
+    There is no <code>Group</code> object on the cluster — <code>oc get group {{ subject.name }}</code> will return nothing. Bindings to this name still take effect at request time.
+  </div>
+  {% endif %}
+
+  {% if subject.kind == "User" and htpasswd_configured and not htpasswd_available %}
+  <div class="banner">
+    <strong>HTPasswd checks degraded.</strong> Lineage couldn't read the HTPasswd Secret in <code>openshift-config</code>{% if htpasswd_reason %} (<span class="mono dim">{{ htpasswd_reason }}</span>){% endif %}, so latent / phantom / htpasswd-backed signals for this user are unavailable. Other identity findings (ghost, no-ID, orphan identity) are unaffected.
+  </div>
+  {% endif %}
+
+  {% if is_ghost %}
+  <div class="banner banner-warn">
+    {% if subject.kind == "ServiceAccount" %}
+    This ServiceAccount object is absent, but the principal
+    <code>system:serviceaccount:{{ subject.namespace }}:{{ subject.name }}</code>
+    is still referenced by at least one surviving grant (RBAC or SCC).
+    Recreating the ServiceAccount with the same name reactivates whatever
+    role or SCC the grant points to. If the namespace itself is also
+    absent, recreating both does the same in a single shell session.
+    {% else %}
+    This subject does not exist as an object on the cluster, but is referenced
+    by at least one binding. Permissions activate the moment the matching
+    identity is created or first logs in via an IdP.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if is_latent %}
+  <div class="banner banner-warn">
+    <strong>Latent user.</strong> This account exists in the htpasswd Secret backing the IdP, but no <code>User</code> object has been created yet. The account can authenticate at any time.
+    <code>oc get users</code> does not show this account.
+  </div>
+  {% endif %}
+</section>
+
+{% if subject.kind == "User" and identities %}
+<section>
+  <h2>Identity provenance</h2>
+  <table class="dense">
+    <thead><tr><th>Identity</th><th>Provider</th><th>Provider username</th><th>IdP type</th><th>Backing config</th></tr></thead>
+    <tbody>
+      {% for ident in identities %}
+      <tr>
+        <td class="mono">{{ ident.name }}</td>
+        <td class="mono">{{ ident.providerName }}</td>
+        <td class="mono">{{ ident.providerUserName }}</td>
+        {% set idp = idps_by_name.get(ident.providerName) %}
+        <td>{{ idp.type if idp else "—" }}</td>
+        <td class="mono">
+          {% if idp and idp.type == "HTPasswd" %}Secret/{{ idp.htpasswd.fileData.name }}
+          {% elif idp and idp.type == "LDAP" %}Secret/{{ idp.ldap.bindPassword.name }}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if groups %}
+  <h3>Group memberships</h3>
+  <ul class="inline-list">
+    {% for g in groups %}<li><a href="/subject/Group/{{ g }}" class="mono">{{ g }}</a></li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if subject.kind == "Group" and not is_virtual_group %}
+<section>
+  <h2>Members ({{ members|length }})</h2>
+  {% if members %}
+  <ul class="inline-list">
+    {% for member in members %}<li><a href="/subject/User/{{ member }}" class="mono">{{ member }}</a></li>{% endfor %}
+  </ul>
+  {% else %}<p class="dim">No members. The Group exists but isn't populated.</p>{% endif %}
+</section>
+{% endif %}
+
+{% if subject.kind == "ServiceAccount" %}
+<section>
+  <h2>Pods ({{ sa_pods|length }})</h2>
+  {% if sa_pods %}
+  <table class="dense">
+    <thead><tr><th>Pod</th><th>Phase</th><th>SCC</th><th>Owner</th></tr></thead>
+    <tbody>
+      {% for p in sa_pods %}
+      {% set admit = p.annotations.get("openshift.io/scc") %}
+      {% set scc_obj = sccs_by_name.get(admit) if admit else None %}
+      <tr>
+        <td class="mono">{{ p.name }}</td>
+        <td>{{ p.phase or "—" }}</td>
+        <td class="mono">
+          {% if admit %}<a href="/scc/{{ admit }}">{{ admit }}</a>{% if scc_obj and scc_obj.allowPrivilegedContainer %} <span class="badge badge-priv">priv</span>{% endif %}{% else %}—{% endif %}
+        </td>
+        <td class="mono dim">{% if p.ownerReferences %}{{ p.ownerReferences[0].kind }}/{{ p.ownerReferences[0].name }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No pods running as this ServiceAccount.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Jobs running as this ServiceAccount ({{ sa_jobs|length }})</h2>
+  {% if sa_jobs %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Owner</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for j in sa_jobs %}
+      <tr>
+        <td class="mono">{{ j.name }}</td>
+        <td class="mono dim">{% if j.owner_kind %}{{ j.owner_kind }}/{{ j.owner_name }}{% else %}—{% endif %}</td>
+        <td class="mono dim" data-sort="{{ j.creation_ts or '' }}" title="{{ j.creation_ts }}">{{ j.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+<section>
+  <h2>CronJobs running as this ServiceAccount ({{ sa_cronjobs|length }})</h2>
+  {% if sa_cronjobs %}
+  <table class="dense sortable">
+    <thead><tr><th>Name</th><th>Schedule</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for c in sa_cronjobs %}
+      <tr>
+        <td class="mono">{{ c.name }}</td>
+        <td class="mono">{{ c.schedule or "—" }}</td>
+        <td class="mono dim" data-sort="{{ c.creation_ts or '' }}" title="{{ c.creation_ts }}">{{ c.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">None.</p>{% endif %}
+</section>
+
+{% if sa_surviving_grants %}
+<section>
+  <h2>Surviving grants for this absent ServiceAccount</h2>
+  <p class="lede">The ServiceAccount object is gone, but these grants still address its principal. Recreating the SA with the same name reactivates them.</p>
+  <table class="dense">
+    <thead><tr><th>Severity</th><th>Kind / Name</th><th>Role</th><th>Via</th></tr></thead>
+    <tbody>
+      {% for g in sa_surviving_grants.grants %}
+      <tr class="{% if g.severity == 'critical' %}row-priv{% elif g.severity == 'high' %}row-warn{% endif %}">
+        <td>
+          {% if g.severity == 'critical' %}<span class="badge badge-priv">critical</span>
+          {% elif g.severity == 'high' %}<span class="badge badge-priv">high</span>
+          {% elif g.severity == 'medium' %}<span class="badge badge-warn">medium</span>
+          {% else %}<span class="badge badge-info">low</span>{% endif %}
+        </td>
+        <td class="mono">
+          {{ k.tag(g.kind) }}{{ g.name }}{% if g.namespace %} <span class="dim">(<a href="/namespace/{{ g.namespace }}">{{ g.namespace }}</a>)</span>{% endif %}
+        </td>
+        <td class="mono">
+          {% if g.role_kind == "ClusterRole" %}<a href="/clusterrole/{{ g.role }}">{% if g.is_privileged_role %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+          {% elif g.role_kind == "Role" and g.namespace %}<a href="/role/{{ g.namespace }}/{{ g.role }}">{% if g.is_privileged_role %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+          {% elif g.role_kind == "SCC" %}<a href="/scc/{{ g.role }}">{% if g.is_privileged_scc %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+          {% else %}{% if g.is_privileged_role or g.is_privileged_scc %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}{% endif %}
+        </td>
+        <td class="dim">{{ g.via }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if sa_bindings %}
+<section>
+  <h2>Bindings referencing this ServiceAccount</h2>
+  <p class="lede">Every binding whose subject list names this SA — split by scope.</p>
+
+  {% set n = sa_bindings.rbs_same_ns|length %}
+  <h3>RoleBindings in <code>{{ subject.namespace }}</code> ({{ n }})</h3>
+  {{ t.head(n, "bindings") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>Binding</th><th>Role</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for e in sa_bindings.rbs_same_ns %}
+      <tr>
+        <td class="mono">RoleBinding/{{ e.name }}</td>
+        <td class="mono">
+          {% if e.role_kind == "ClusterRole" %}<a href="/clusterrole/{{ e.role }}">{{ e.role }}</a>
+          {% elif e.role_kind == "Role" %}<a href="/role/{{ e.namespace }}/{{ e.role }}">{{ e.role }}</a>
+          {% else %}{{ e.role }}{% endif %}
+          {% if e.role in privileged_roles %} <span class="badge badge-priv">{{ e.role }}</span>{% endif %}
+        </td>
+        <td class="mono dim" data-sort="{{ e.creation_ts or '' }}" title="{{ e.creation_ts }}">{{ e.creation_ts|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+
+  {% set n = sa_bindings.rbs_cross_ns|length %}
+  <h3>RoleBindings in other namespaces ({{ n }})</h3>
+  {{ t.head(n, "bindings") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>Namespace</th><th>Binding</th><th>Role</th></tr></thead>
+    <tbody>
+      {% for e in sa_bindings.rbs_cross_ns %}
+      <tr>
+        <td class="mono"><a href="/namespace/{{ e.namespace }}">{{ e.namespace }}</a></td>
+        <td class="mono">RoleBinding/{{ e.name }}</td>
+        <td class="mono">
+          {% if e.role_kind == "ClusterRole" %}<a href="/clusterrole/{{ e.role }}">{{ e.role }}</a>
+          {% elif e.role_kind == "Role" %}<a href="/role/{{ e.namespace }}/{{ e.role }}">{{ e.role }}</a>
+          {% else %}{{ e.role }}{% endif %}
+          {% if e.role in privileged_roles %} <span class="badge badge-priv">{{ e.role }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+
+  {% set n = sa_bindings.crbs|length %}
+  <h3>ClusterRoleBindings ({{ n }})</h3>
+  {{ t.head(n, "bindings") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>Binding</th><th>Role</th></tr></thead>
+    <tbody>
+      {% for e in sa_bindings.crbs %}
+      <tr>
+        <td class="mono">ClusterRoleBinding/{{ e.name }}</td>
+        <td class="mono">
+          <a href="/clusterrole/{{ e.role }}">{{ e.role }}</a>
+          {% if e.role in privileged_roles %} <span class="badge badge-priv">{{ e.role }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+{% if sa_images %}
+{% set n = sa_images|length %}
+<section>
+  <h2>Images run by this ServiceAccount ({{ n }})</h2>
+  <p class="lede">Distinct images across the SA's pods.</p>
+  {{ t.head(n, "images") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>Image</th><th>Registry</th><th>Containers</th></tr></thead>
+    <tbody>
+      {% for i in sa_images %}
+      <tr>
+        <td class="mono"><a href="/image?ref={{ i.image }}">{{ i.image|short_image }}</a></td>
+        <td class="mono dim">{{ i.registry }}</td>
+        <td class="mono">{{ i.pod_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+<section>
+  <h2>Direct SCC eligibility ({{ sa_scc_chain|length }})</h2>
+  <p class="lede">SCCs this ServiceAccount can use because its principal is listed directly in <code>scc.users</code>, or because <code>scc.groups</code> includes a group the principal belongs to (<code>system:authenticated</code>, <code>system:serviceaccounts</code>, or <code>system:serviceaccounts:{{ subject.namespace }}</code>). This is <strong>not</strong> the full effective SCC set — RBAC <code>use</code> grants on <code>securitycontextconstraints</code> objects also admit pods, and those are listed on each SCC's detail page under <em>Potential subjects</em>.</p>
+  {% if sa_scc_chain %}
+  <table class="dense">
+    <thead><tr><th>SCC</th><th>Priority</th><th>Granted via</th><th>Privileged</th></tr></thead>
+    <tbody>
+      {% for entry in sa_scc_chain %}
+      <tr>
+        <td class="mono"><a href="/scc/{{ entry.scc.name }}">{{ entry.scc.name }}</a></td>
+        <td class="mono">{{ entry.scc.priority if entry.scc.priority is not none else "—" }}</td>
+        <td class="mono dim">{{ entry.via }}</td>
+        <td>{% if entry.scc.allowPrivilegedContainer %}<span class="badge badge-priv">yes</span>{% else %}no{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No SCCs match.</p>{% endif %}
+</section>
+{% endif %}
+
+{% macro reach_cluster_row(r) -%}
+  <tr>
+    <td>
+      {# Cluster-wide reach can only come from a ClusterRoleBinding,
+         which must reference a ClusterRole. #}
+      <a class="mono" href="/clusterrole/{{ r.role }}">{% if r.role in privileged_roles %}<span class="badge badge-priv">{{ r.role }}</span>{% else %}{{ r.role }}{% endif %}</a>
+    </td>
+    <td class="mono dim">{% if r.via_group %}Group/<a href="/subject/Group/{{ r.via_group }}">{{ r.via_group }}</a>{% else %}direct{% endif %}</td>
+    <td class="mono">{{ r.binding_kind }}/{{ r.binding_name }}</td>
+  </tr>
+{%- endmacro %}
+
+{% macro reach_ns_row(ns, r, first, span) -%}
+  <tr>
+    {% if first %}<td class="mono" rowspan="{{ span }}"><a href="/namespace/{{ ns }}">{{ ns }}</a></td>{% endif %}
+    <td>
+      {% if r.role_kind == "ClusterRole" %}<a class="mono" href="/clusterrole/{{ r.role }}">{% if r.role in privileged_roles %}<span class="badge badge-priv">{{ r.role }}</span>{% else %}{{ r.role }}{% endif %}</a>
+      {% elif r.role_kind == "Role" %}<a class="mono" href="/role/{{ ns }}/{{ r.role }}">{% if r.role in privileged_roles %}<span class="badge badge-priv">{{ r.role }}</span>{% else %}{{ r.role }}{% endif %}</a>
+      {% else %}<span class="mono">{{ r.role }}</span>{% endif %}
+    </td>
+    <td class="mono dim">{% if r.via_group %}Group/<a href="/subject/Group/{{ r.via_group }}">{{ r.via_group }}</a>{% else %}direct{% endif %}</td>
+    <td class="mono">{{ r.binding_kind }}/{{ r.binding_name }}</td>
+  </tr>
+{%- endmacro %}
+
+<section>
+  <h2>Reach</h2>
+  <p class="lede">Where this subject's permissions land. Cluster-wide grants reach every namespace; namespace-scoped grants are listed individually.{% if reach_cluster_system or reach_ns_system %} Grants that come from auto-membership virtual groups (<code>system:authenticated</code>, <code>system:authenticated:oauth</code>, <code>system:serviceaccounts</code>, <code>system:serviceaccounts:&lt;ns&gt;</code>) are folded into the collapsible blocks below — they apply to every authenticated principal on the cluster, not to this subject specifically.{% endif %}</p>
+
+  {% if reach_cluster_primary %}
+  <h3>Cluster-wide ({{ reach_cluster_primary|length }})</h3>
+  <table class="dense">
+    <thead><tr><th>Role</th><th>Via</th><th>Binding</th></tr></thead>
+    <tbody>
+      {% for r in reach_cluster_primary %}{{ reach_cluster_row(r) }}{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if reach_cluster_system %}
+  <details class="system-reach">
+    <summary><strong>Cluster-wide via system virtual groups</strong> <span class="dim">({{ reach_cluster_system|length }})</span> <span class="dim">— shared with every authenticated principal</span></summary>
+    <table class="dense">
+      <thead><tr><th>Role</th><th>Via</th><th>Binding</th></tr></thead>
+      <tbody>
+        {% for r in reach_cluster_system %}{{ reach_cluster_row(r) }}{% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+  {% if reach_ns_primary %}
+  <h3>Per-namespace ({{ reach_ns_primary|length }} namespace{{ '' if reach_ns_primary|length == 1 else 's' }})</h3>
+  <table class="dense">
+    <thead><tr><th>Namespace</th><th>Role</th><th>Via</th><th>Binding</th></tr></thead>
+    <tbody>
+      {% for ns, paths_list in reach_ns_primary.items() %}
+        {% for r in paths_list %}{{ reach_ns_row(ns, r, loop.first, paths_list|length) }}{% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if reach_ns_system %}
+  <details class="system-reach">
+    <summary><strong>Per-namespace via system virtual groups</strong> <span class="dim">({{ reach_ns_system|length }} namespace{{ '' if reach_ns_system|length == 1 else 's' }})</span> <span class="dim">— shared with every authenticated principal</span></summary>
+    <table class="dense">
+      <thead><tr><th>Namespace</th><th>Role</th><th>Via</th><th>Binding</th></tr></thead>
+      <tbody>
+        {% for ns, paths_list in reach_ns_system.items() %}
+          {% for r in paths_list %}{{ reach_ns_row(ns, r, loop.first, paths_list|length) }}{% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+  {% if not reach_cluster_primary and not reach_ns_primary and not reach_cluster_system and not reach_ns_system %}
+  <p class="dim">This subject has no bindings (direct or via group membership).</p>
+  {% endif %}
+</section>
+
+{% macro path_card(p) -%}
+  <details class="path-card">
+    <summary>
+      {% set binding_step = p.steps[-2] %}
+      {% set role_step = p.steps[-1] %}
+      {% set role_name = role_step.name %}
+      <div class="path-summary-row">
+        <span class="path-scope-badge {% if binding_step.namespace %}path-scope-namespace{% else %}path-scope-cluster{% endif %}">
+          {% if binding_step.namespace %}
+          Namespace: <a class="mono" href="/namespace/{{ binding_step.namespace }}">{{ binding_step.namespace }}</a>
+          {% else %}
+          Cluster-wide
+          {% endif %}
+        </span>
+        <span class="path-summary-meta">
+          {% if p.summary.wildcard %}<span class="badge badge-priv">* wildcard</span>{% endif %}
+          <span class="dim">{{ p.summary.total_rules }} rule{{ '' if p.summary.total_rules == 1 else 's' }}</span>
+        </span>
+      </div>
+      <div class="path-map" aria-label="Permission path">
+        <div class="path-node path-node-subject path-node-{{ k.slug(subject.kind) }}">
+          <span class="path-node-kind">{{ subject.kind }}</span>
+          <span class="path-node-name mono">{{ subject.name }}</span>
+          {% if subject.namespace %}<span class="path-node-meta mono">{{ subject.namespace }}</span>{% endif %}
+        </div>
+        {% if p.via_group %}
+        <div class="path-connector"><span>member of</span></div>
+        <div class="path-node path-node-group">
+          <span class="path-node-kind">Group</span>
+          <a class="path-node-name mono" href="/subject/Group/{{ p.via_group }}">{{ p.via_group }}</a>
+        </div>
+        {% endif %}
+        <div class="path-connector"><span>bound by</span></div>
+        <div class="path-node path-node-binding">
+          <span class="path-node-kind">{{ binding_step.kind }}</span>
+          <span class="path-node-name mono">{{ binding_step.name }}</span>
+        </div>
+        <div class="path-connector"><span>grants</span></div>
+        <div class="path-node path-node-role {% if role_name in privileged_roles %}path-node-priv{% endif %}">
+          <span class="path-node-kind">{{ role_step.kind }}</span>
+          {% if role_step.kind == "ClusterRole" %}<a class="path-node-name mono" href="/clusterrole/{{ role_name }}">{{ role_name }}</a>
+          {% elif role_step.kind == "Role" and binding_step.namespace %}<a class="path-node-name mono" href="/role/{{ binding_step.namespace }}/{{ role_name }}">{{ role_name }}</a>
+          {% else %}<span class="path-node-name mono">{{ role_name }}</span>{% endif %}
+          {% if role_name in privileged_roles %}<span class="badge badge-priv">privileged</span>{% endif %}
+        </div>
+      </div>
+      <div class="path-summary-line">
+        <strong>Verbs:</strong>
+        {% for v in p.summary.verbs[:8] %}<span class="mono chip">{{ v }}</span>{% endfor %}
+        {% if p.summary.verbs|length > 8 %}<span class="dim">+{{ p.summary.verbs|length - 8 }}</span>{% endif %}
+        &nbsp;<strong>Resources:</strong>
+        {% for r in p.summary.resources[:6] %}<span class="mono chip">{{ r }}</span>{% endfor %}
+        {% if p.summary.resources|length > 6 %}<span class="dim">+{{ p.summary.resources|length - 6 }} more</span>{% endif %}
+        &nbsp;<strong>API groups:</strong>
+        <span class="mono dim">{{ p.summary.api_groups|join(", ") }}</span>
+      </div>
+      {% if p.components %}
+      <div class="path-summary-line dim">
+        Aggregated from
+        {% for c in p.components[:5] %}<a class="mono" href="/clusterrole/{{ c.name }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+        {% if p.components|length > 5 %}<span class="dim">+{{ p.components|length - 5 }} more</span>{% endif %}
+      </div>
+      {% endif %}
+      {% if p.bindings|length > 1 %}
+      <div class="path-summary-line">
+        <span class="badge badge-warn">{{ p.bindings|length }} duplicate bindings</span>
+        <span class="mono dim">{% for b in p.bindings %}{{ b.name }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+      </div>
+      {% endif %}
+    </summary>
+    <div class="path-rules">
+      <table class="dense rules-table sortable">
+        <thead><tr><th>API group</th><th>Resources</th><th>Verbs</th>{% if p.components %}<th>From</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for r in p.rules %}
+          <tr>
+            {{ rc.api_group_cell(r) }}
+            {{ rc.resources_cell(r) }}
+            {{ rc.verbs_cell(r) }}
+            {% if p.components %}<td class="mono dim">{% if r._from %}<a href="/clusterrole/{{ r._from }}">{{ r._from }}</a>{% else %}—{% endif %}</td>{% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+{%- endmacro %}
+
+<section>
+  <h2>Effective permissions ({{ paths|length }} path{{ '' if paths|length == 1 else 's' }})</h2>
+
+  {% if not paths %}
+  <p class="dim">No paths.</p>
+  {% else %}
+  <p class="lede">Each path is one (role, scope, group-membership) combination. Click <em>Show rules</em> to see the underlying API rules.{% if paths_system %} {{ paths_system|length }} additional path{{ '' if paths_system|length == 1 else 's' }} via auto-membership virtual groups (<code>system:authenticated</code> et al.) {{ 'is' if paths_system|length == 1 else 'are' }} collapsed below — they grant the same access to every authenticated principal.{% endif %}</p>
+
+  {% if paths_primary %}
+  {% for p in paths_primary %}{{ path_card(p) }}{% endfor %}
+  {% elif paths_system %}
+  <p class="dim">All paths come from auto-membership virtual groups — see the collapsible block below.</p>
+  {% endif %}
+
+  {% if paths_system %}
+  <details class="system-reach">
+    <summary><strong>Paths via system virtual groups</strong> <span class="dim">({{ paths_system|length }})</span> <span class="dim">— shared with every authenticated principal</span></summary>
+    <div class="system-paths">
+      {% for p in paths_system %}{{ path_card(p) }}{% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {# Original unsplit loop kept as fallback (currently disabled). #}
+  {% if false %}
+  {% for p in paths %}
+  <details class="path-card">
+    <summary>
+      {% set binding_step = p.steps[-2] %}
+      {% set role_step = p.steps[-1] %}
+      {% set role_name = role_step.name %}
+      <div class="path-summary-row">
+        <span class="path-summary-meta">
+          {% if p.summary.wildcard %}<span class="badge badge-priv">* wildcard</span>{% endif %}
+          <span class="dim">{{ p.summary.total_rules }} rule{{ '' if p.summary.total_rules == 1 else 's' }}</span>
+          <span class="dim">· {{ p.scope }}</span>
+        </span>
+      </div>
+      <div class="path-map" aria-label="Permission path">
+        <div class="path-node path-node-subject path-node-{{ k.slug(subject.kind) }}">
+          <span class="path-node-kind">{{ subject.kind }}</span>
+          <span class="path-node-name mono">{{ subject.name }}</span>
+          {% if subject.namespace %}<span class="path-node-meta mono">{{ subject.namespace }}</span>{% endif %}
+        </div>
+        {% if p.via_group %}
+        <div class="path-connector"><span>member of</span></div>
+        <div class="path-node path-node-group">
+          <span class="path-node-kind">Group</span>
+          <a class="path-node-name mono" href="/subject/Group/{{ p.via_group }}">{{ p.via_group }}</a>
+        </div>
+        {% endif %}
+        <div class="path-connector"><span>bound by</span></div>
+        <div class="path-node path-node-binding">
+          <span class="path-node-kind">{{ binding_step.kind }}</span>
+          <span class="path-node-name mono">{{ binding_step.name }}</span>
+          {% if binding_step.namespace %}<a class="path-node-meta mono" href="/namespace/{{ binding_step.namespace }}">{{ binding_step.namespace }}</a>{% endif %}
+        </div>
+        <div class="path-connector"><span>grants</span></div>
+        <div class="path-node path-node-role {% if role_name in privileged_roles %}path-node-priv{% endif %}">
+          <span class="path-node-kind">{{ role_step.kind }}</span>
+          {% if role_step.kind == "ClusterRole" %}<a class="path-node-name mono" href="/clusterrole/{{ role_name }}">{{ role_name }}</a>
+          {% elif role_step.kind == "Role" and binding_step.namespace %}<a class="path-node-name mono" href="/role/{{ binding_step.namespace }}/{{ role_name }}">{{ role_name }}</a>
+          {% else %}<span class="path-node-name mono">{{ role_name }}</span>{% endif %}
+          {% if role_name in privileged_roles %}<span class="badge badge-priv">privileged</span>{% endif %}
+        </div>
+      </div>
+      <div class="path-summary-line">
+        <strong>Verbs:</strong>
+        {% for v in p.summary.verbs[:8] %}<span class="mono chip">{{ v }}</span>{% endfor %}
+        {% if p.summary.verbs|length > 8 %}<span class="dim">+{{ p.summary.verbs|length - 8 }}</span>{% endif %}
+        &nbsp;<strong>Resources:</strong>
+        {% for r in p.summary.resources[:6] %}<span class="mono chip">{{ r }}</span>{% endfor %}
+        {% if p.summary.resources|length > 6 %}<span class="dim">+{{ p.summary.resources|length - 6 }} more</span>{% endif %}
+        &nbsp;<strong>API groups:</strong>
+        <span class="mono dim">{{ p.summary.api_groups|join(", ") }}</span>
+      </div>
+      {% if p.components %}
+      <div class="path-summary-line dim">
+        Aggregated from
+        {% for c in p.components[:5] %}<a class="mono" href="/clusterrole/{{ c.name }}">{{ c.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+        {% if p.components|length > 5 %}<span class="dim">+{{ p.components|length - 5 }} more</span>{% endif %}
+      </div>
+      {% endif %}
+      {% if p.bindings|length > 1 %}
+      <div class="path-summary-line">
+        <span class="badge badge-warn">{{ p.bindings|length }} duplicate bindings</span>
+        <span class="mono dim">{% for b in p.bindings %}{{ b.name }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+      </div>
+      {% endif %}
+    </summary>
+    <div class="path-rules">
+      <table class="dense rules-table sortable">
+        <thead><tr><th>API group</th><th>Resources</th><th>Verbs</th>{% if p.components %}<th>From</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for r in p.rules %}
+          <tr>
+            {{ rc.api_group_cell(r) }}
+            {{ rc.resources_cell(r) }}
+            {{ rc.verbs_cell(r) }}
+            {% if p.components %}<td class="mono dim">{% if r._from %}<a href="/clusterrole/{{ r._from }}">{{ r._from }}</a>{% else %}—{% endif %}</td>{% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endfor %}
+  {% endif %}{# /if false #}
+  {% endif %}{# /if not paths/else #}
+</section>
+
+{% endblock %}

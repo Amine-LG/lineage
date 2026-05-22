@@ -1,0 +1,9 @@
+{# Generic "Back" control. Just calls window.history.back() — the same
+   thing the browser's own back button does. No fallback URL: if there
+   is no history (new tab, bookmark, refresh), the browser does nothing,
+   exactly like clicking the disabled back arrow. #}
+
+{% macro back(fallback="/") -%}
+<p class="dim"><button type="button" class="back-link"
+   onclick="window.history.back();">&larr; Back</button></p>
+{%- endmacro %}

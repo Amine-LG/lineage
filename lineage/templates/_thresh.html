@@ -1,0 +1,24 @@
+{# Display-threshold helpers for variable-length tables.
+
+Rule:
+  - 1-8 rows  -> inline
+  - 9+ rows   -> <details>…</details>, with every row rendered
+
+Empty (n == 0) renders a small "None." note via head() and a no-op tail().
+#}
+
+{% macro head(n, label="rows") -%}
+  {%- if n == 0 -%}
+    <p class="dim">None.</p>
+  {%- elif n > 8 -%}
+    <details class="expand-details">
+      <summary>
+        <span>{{ n }} {{ label }}</span>
+        <span class="expand-action">Click to expand</span>
+      </summary>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro tail(n) -%}
+  {%- if n > 8 -%}</details>{%- endif -%}
+{%- endmacro %}

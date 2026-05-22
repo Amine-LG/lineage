@@ -1,0 +1,25 @@
+# OPTIONAL — exposes Lineage on a cluster hostname. For most reviewers
+# `oc port-forward svc/lineage 8080:8080 -n lineage-incluster` is enough
+# and avoids putting an audit tool on a public route. Apply this file
+# only if you understand who can reach the route's host.
+#
+# Lineage has no built-in authentication. If you create this Route,
+# make sure it is only reachable by trusted reviewers (network policy,
+# private DNS, VPN, etc).
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: lineage
+  namespace: lineage-incluster
+  labels:
+    app.kubernetes.io/name: lineage
+spec:
+  to:
+    kind: Service
+    name: lineage
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

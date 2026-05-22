@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ role.name }}{% endblock %}
+{% import "_thresh.html" as t %}
+{% import "_kind.html" as k %}
+{% import "_back.html" as back %}
+{% import "_rule_cells.html" as rc %}
+{% block content %}
+
+<section>
+  {{ back.back("/clusterroles") }}
+  <h1>
+    {{ k.tag("ClusterRole") }}
+    <span class="mono">{{ role.name }}</span>
+    {% if role.name in privileged_roles %}<span class="badge badge-priv">privileged</span>{% endif %}
+    {% if role.aggregationRule %}<span class="badge badge-info">aggregated</span>{% endif %}
+  </h1>
+
+  {% if role.annotations and role.annotations.get("openshift.io/description") %}
+  <p class="lede">{{ role.annotations["openshift.io/description"] }}</p>
+  {% endif %}
+</section>
+
+{% if namespaces_reached or cluster_wide_count %}
+<section>
+  <h2>Namespaces reached</h2>
+  <p class="lede">Where bindings to this ClusterRole land. Cluster-wide bindings reach every namespace; per-namespace bindings are listed.</p>
+  {% if cluster_wide_count %}
+  <p><strong>{{ cluster_wide_count }}</strong> cluster-wide binding{{ '' if cluster_wide_count == 1 else 's' }} — applies cluster-wide.</p>
+  {% endif %}
+  {% set n = namespaces_reached|length %}
+  {{ t.head(n, "namespaces") }}
+  {% if n > 0 %}
+  <table class="dense">
+    <thead><tr><th>Namespace</th><th>Bindings</th></tr></thead>
+    <tbody>
+      {% for r in namespaces_reached %}
+      <tr>
+        <td class="mono"><a href="/namespace/{{ r.namespace }}">{{ r.namespace }}</a></td>
+        <td class="mono">{{ r.binding_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+{% if components or aggregation_parents %}
+<section>
+  <h2>Aggregation relationships</h2>
+  {% if components %}
+  <h3>Component roles ({{ components|length }})</h3>
+  <p class="dim">This role aggregates rules from the following ClusterRoles.</p>
+  {# inline-list scales fine; no expand needed for short link lists. #}
+  <ul class="inline-list">
+    {% for c in components %}<li><a class="mono" href="/clusterrole/{{ c.name }}">{{ c.name }}</a></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if aggregation_parents %}
+  <h3>Aggregated into ({{ aggregation_parents|length }})</h3>
+  <p class="dim">This role's labels match the selectors of these parent ClusterRoles, so its rules flow into them.</p>
+  <ul class="inline-list">
+    {% for p in aggregation_parents %}<li><a class="mono" href="/clusterrole/{{ p.name }}">{{ p.name }}</a></li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if scc_use %}
+{% set n = scc_use|length %}
+<section>
+  <h2>SCC-use grants ({{ n }})</h2>
+  <p class="lede">This role's rules grant <code>use</code> on these SecurityContextConstraints. Privileged SCCs are highlighted.</p>
+  {{ t.head(n, "SCCs") }}
+  <table class="dense">
+    <thead><tr><th>SCC</th><th>Present</th><th>Privileged</th></tr></thead>
+    <tbody>
+      {% for e in scc_use %}
+      <tr {% if e.allowPrivilegedContainer %}class="row-priv"{% endif %}>
+        <td class="mono">
+          {% if e.present %}<a href="/scc/{{ e.scc_name }}">{{ e.scc_name }}</a>
+          {% else %}{{ e.scc_name }} <span class="badge badge-warn">missing</span>{% endif %}
+        </td>
+        <td>{% if e.present %}yes{% else %}<span class="dim">no</span>{% endif %}</td>
+        <td>{% if e.allowPrivilegedContainer %}<span class="badge badge-priv">yes</span>{% else %}no{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+<section>
+  <h2>Bindings that reference this role ({{ bound_by|length }})</h2>
+  {% if bound_by %}
+  <table class="dense sortable">
+    <thead><tr><th>Binding</th><th>Scope</th><th>Subjects</th></tr></thead>
+    <tbody>
+      {% for b in bound_by %}
+      <tr>
+        <td class="mono">{{ b.kind }}/{{ b.name }}</td>
+        <td class="mono dim">
+          {% if b.kind == "ClusterRoleBinding" %}cluster-wide
+          {% else %}<a href="/namespace/{{ b.namespace }}">{{ b.namespace }}</a>{% endif %}
+        </td>
+        <td>
+          {% for s in b.subjects %}
+            {{ k.tag(s.kind) }}<a class="mono" href="/subject/{{ s.kind }}/{{ s.name }}{% if s.namespace %}?namespace={{ s.namespace }}{% endif %}">{{ s.name }}</a>{% if s.namespace %} <span class="dim mono">(<a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>)</span>{% endif %}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No bindings reference this role. It's defined but not granted to anyone.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Rules ({{ rules|length }}{% if components %} aggregated from {{ components|length }} component role{{ '' if components|length == 1 else 's' }}{% endif %})</h2>
+  <p class="lede">
+    <strong>Verbs:</strong>
+    {% for v in summary.verbs %}<span class="mono chip">{{ v }}</span>{% endfor %}
+  </p>
+  <table class="dense sortable">
+    <thead><tr><th>API group</th><th>Resources</th><th>Verbs</th>{% if components %}<th>From</th>{% endif %}</tr></thead>
+    <tbody>
+      {% for r in rules %}
+      <tr>
+        {{ rc.api_group_cell(r) }}
+        {{ rc.resources_cell(r) }}
+        {{ rc.verbs_cell(r) }}
+        {% if components %}<td class="mono dim">{% if r._from %}<a href="/clusterrole/{{ r._from }}">{{ r._from }}</a>{% else %}—{% endif %}</td>{% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

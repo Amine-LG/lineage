@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}SCC {{ scc.name }}{% endblock %}
+{% import "_thresh.html" as th %}
+{% import "_kind.html" as k %}
+{% import "_back.html" as back %}
+{% block content %}
+
+<section>
+  {{ back.back("/sccs") }}
+  <h1>
+    {{ k.tag("SCC") }}
+    <span class="mono">{{ scc.name }}</span>
+    {% if scc.allowPrivilegedContainer %}<span class="badge badge-priv">privileged</span>{% endif %}
+  </h1>
+
+  <h2>Configuration</h2>
+  <table class="dense">
+    <tbody>
+      <tr><td>priority</td><td class="mono">{{ scc.priority if scc.priority is not none else "—" }}</td></tr>
+      <tr><td>allowPrivilegedContainer</td><td class="mono">{{ scc.allowPrivilegedContainer }}</td></tr>
+      <tr><td>allowPrivilegeEscalation</td><td class="mono">{{ scc.allowPrivilegeEscalation }}</td></tr>
+      <tr><td>allowHostNetwork</td><td class="mono">{{ scc.allowHostNetwork }}</td></tr>
+      <tr><td>allowHostPID</td><td class="mono">{{ scc.allowHostPID }}</td></tr>
+      <tr><td>allowHostIPC</td><td class="mono">{{ scc.allowHostIPC }}</td></tr>
+      <tr><td>readOnlyRootFilesystem</td><td class="mono">{{ scc.readOnlyRootFilesystem }}</td></tr>
+      <tr><td>runAsUser.type</td><td class="mono">{{ scc.runAsUser.get("type", "—") }}</td></tr>
+      {% if scc.allowedCapabilities %}
+      <tr><td>allowedCapabilities</td><td class="mono">
+        {% for c in scc.allowedCapabilities %}{% if c == "*" %}<span class="badge badge-priv">*</span>{% else %}<span class="mono chip">{{ c }}</span>{% endif %}{% endfor %}
+      </td></tr>
+      {% endif %}
+      {% if scc.defaultAddCapabilities %}
+      <tr><td>defaultAddCapabilities</td><td class="mono">
+        {% for c in scc.defaultAddCapabilities %}<span class="mono chip">{{ c }}</span>{% endfor %}
+      </td></tr>
+      {% endif %}
+      {% if scc.requiredDropCapabilities %}
+      <tr><td>requiredDropCapabilities</td><td class="mono">
+        {% for c in scc.requiredDropCapabilities %}<span class="mono chip dim">{{ c }}</span>{% endfor %}
+      </td></tr>
+      {% endif %}
+      {% if scc.seccompProfiles %}
+      <tr><td>seccompProfiles</td><td class="mono">
+        {% for p in scc.seccompProfiles %}{% if p == "*" %}<span class="badge badge-priv">*</span>{% else %}<span class="mono chip">{{ p }}</span>{% endif %}{% endfor %}
+      </td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h2>Granted to</h2>
+  {% set absent_set = absent_sa_grants|map(attribute='principal')|list %}
+  <h3>Users ({{ user_links|length }})</h3>
+  {% if user_links %}
+  <ul class="inline-list">
+    {% for u in user_links %}
+    <li class="mono">
+      {% if u.kind == "ServiceAccount" %}
+        <a href="/subject/ServiceAccount/{{ u.name }}?namespace={{ u.namespace }}">{{ u.raw }}</a>
+      {% elif u.kind == "User" %}
+        <a href="/subject/User/{{ u.name }}">{{ u.raw }}</a>
+      {% else %}
+        {{ u.raw }}
+      {% endif %}
+      {% if u.raw in absent_set %}<span class="badge badge-warn">absent SA</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="dim">none</p>{% endif %}
+
+  <h3>Groups ({{ group_links|length }})</h3>
+  {% if group_links %}
+  <ul class="inline-list">
+    {% for g in group_links %}
+    <li class="mono">
+      {% if g.linkable %}<a href="/subject/Group/{{ g.name }}">{{ g.raw }}</a>{% else %}{{ g.raw }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="dim">none</p>{% endif %}
+
+  {% if absent_sa_grants %}
+  <h3>Resurrectable ServiceAccount grants ({{ absent_sa_grants|length }})</h3>
+  <p class="lede">
+    These entries in <code>scc.users</code> address a ServiceAccount that
+    no longer exists. SCC admission matches by name string, so recreating
+    the SA reactivates this SCC's posture for any pod the SA admits.
+    {% if scc.allowPrivilegedContainer %}Because this SCC allows
+    <strong>privileged containers</strong>, the surviving grant is
+    <span class="badge badge-priv">critical</span>.{% endif %}
+  </p>
+  <table class="dense">
+    <thead><tr><th>Principal</th><th>Created</th><th>Namespace</th><th>State</th></tr></thead>
+    <tbody>
+      {% for g in absent_sa_grants %}
+      <tr class="{% if scc.allowPrivilegedContainer %}row-priv{% else %}row-warn{% endif %}">
+        <td class="mono">
+          <a href="/subject/ServiceAccount/{{ g.name }}?namespace={{ g.namespace }}">{{ g.principal }}</a>
+        </td>
+        <td class="mono" data-sort="{{ g.creation_ts or '' }}">{{ g.creation_ts|humanage }}</td>
+        <td class="mono">
+          {% if g.namespace_present %}<a href="/namespace/{{ g.namespace }}">{{ g.namespace }}</a>
+          {% else %}{{ g.namespace }}{% endif %}
+        </td>
+        <td>
+          {% if g.namespace_present %}
+            <span class="badge badge-info">namespace present</span>
+            <span class="dim">SA missing</span>
+          {% else %}
+            <span class="badge badge-priv">namespace deleted</span>
+            <span class="dim">recreating ns + SA reactivates</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h2>Pods admitted under this SCC ({{ admitted|length }})</h2>
+  {% if admitted %}
+  <p class="lede">Expandable summaries below show namespaces, images, and every pod admitted with this SCC. Click a summary row to open the table.</p>
+  {% endif %}
+  {% if admitted %}
+    {% set ns_n = admitted_ns_summary|length %}
+    {% if ns_n > 0 %}
+    <h3>By namespace ({{ ns_n }})</h3>
+    {{ th.head(ns_n, "namespaces") }}
+    <table class="dense">
+      <thead><tr><th>Namespace</th><th>Pods</th></tr></thead>
+      <tbody>
+        {% for r in admitted_ns_summary %}
+        <tr>
+          <td class="mono"><a href="/namespace/{{ r.namespace }}">{{ r.namespace }}</a></td>
+          <td class="mono">{{ r.pod_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ th.tail(ns_n) }}
+    {% endif %}
+
+    {% set img_n = admitted_images|length %}
+    {% if img_n > 0 %}
+    <h3>By image ({{ img_n }})</h3>
+    {{ th.head(img_n, "images") }}
+    <table class="dense">
+      <thead><tr><th>Image</th><th>Registry</th><th>Containers</th></tr></thead>
+      <tbody>
+        {% for i in admitted_images %}
+        <tr>
+          <td class="mono"><a href="/image?ref={{ i.image }}">{{ i.image|short_image }}</a></td>
+          <td class="mono dim">{{ i.registry or "—" }}</td>
+          <td class="mono">{{ i.pod_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ th.tail(img_n) }}
+    {% endif %}
+
+    {% set adm_n = admitted|length %}
+    <h3>All admitted pods ({{ adm_n }})</h3>
+    {{ th.head(adm_n, "pods") }}
+    {% if adm_n > 8 %}
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#admitted-table">
+    {% endif %}
+    <table class="dense sortable" id="admitted-table">
+      <thead><tr><th>ServiceAccount</th><th>Pod</th><th>Namespace</th><th>Phase</th><th>Owner</th><th>Created</th></tr></thead>
+      <tbody>
+        {% for p in admitted %}
+        <tr>
+          <td class="mono">
+            {% set sa = p.spec.get("serviceAccountName") or p.spec.get("serviceAccount") or "default" %}
+            <a href="/subject/ServiceAccount/{{ sa }}?namespace={{ p.namespace }}">{{ sa }}</a>
+          </td>
+          <td class="mono">{{ p.name }}</td>
+          <td class="mono"><a href="/namespace/{{ p.namespace }}">{{ p.namespace }}</a></td>
+          <td>{{ p.phase or "—" }}</td>
+          <td class="mono dim">
+            {% if p.ownerReferences %}{{ p.ownerReferences[0].kind }}/{{ p.ownerReferences[0].name }}{% endif %}
+          </td>
+          <td class="mono" data-sort="{{ p.creationTimestamp or '' }}">{{ p.creationTimestamp|humanage }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ th.tail(adm_n) }}
+  {% else %}<p class="dim">No pods currently admitted under this SCC.</p>{% endif %}
+
+  <h2 id="scc-subjects">Subjects that can use this SCC ({{ potential_subjects|length }}{% if potential_subjects_total != potential_subjects|length %} of {{ potential_subjects_total }}{% endif %})</h2>
+  <p class="lede">
+    Direct SCC grants and RBAC <code>use</code> grants. Ghost ServiceAccounts
+    here are potential admissions: recreating the same SA name reactivates
+    the SCC grant.
+  </p>
+  {% macro url_for_subject_filter(b, kind) -%}
+    ?subject_bucket={{ b }}&subject_kind={{ kind }}#scc-subjects
+  {%- endmacro %}
+
+  <div class="toolbar">
+    <div class="segment-toggle">
+      <a href="{{ url_for_subject_filter('yours', potential_kind) }}" class="{% if potential_bucket == 'yours' %}active{% endif %}">Yours <span class="dim mono">{{ potential_counts.yours }}</span></a>
+      <a href="{{ url_for_subject_filter('unknown', potential_kind) }}" class="{% if potential_bucket == 'unknown' %}active{% endif %}" title="Subjects or RBAC use grants tied to an unclassified namespace">Unclassified <span class="dim mono">{{ potential_counts.unknown }}</span></a>
+      <a href="{{ url_for_subject_filter('baseline', potential_kind) }}" class="{% if potential_bucket == 'baseline' %}active{% endif %}">Baseline <span class="dim mono">{{ potential_counts.baseline }}</span></a>
+      <a href="{{ url_for_subject_filter('all', potential_kind) }}" class="{% if potential_bucket == 'all' %}active{% endif %}">All <span class="dim mono">{{ potential_counts.all }}</span></a>
+    </div>
+  </div>
+
+  <div class="filterbar inline">
+    <a href="{{ url_for_subject_filter(potential_bucket, 'all') }}" class="{% if potential_kind == 'all' %}active{% endif %}">All kinds <span class="dim mono">{{ potential_kind_counts.all }}</span></a>
+    <a href="{{ url_for_subject_filter(potential_bucket, 'User') }}" class="{% if potential_kind == 'User' %}active{% endif %}">Users <span class="dim mono">{{ potential_kind_counts.User }}</span></a>
+    <a href="{{ url_for_subject_filter(potential_bucket, 'Group') }}" class="{% if potential_kind == 'Group' %}active{% endif %}">Groups <span class="dim mono">{{ potential_kind_counts.Group }}</span></a>
+    <a href="{{ url_for_subject_filter(potential_bucket, 'ServiceAccount') }}" class="{% if potential_kind == 'ServiceAccount' %}active{% endif %}">ServiceAccounts <span class="dim mono">{{ potential_kind_counts.ServiceAccount }}</span></a>
+  </div>
+
+  {% if potential_subjects %}
+  <table class="dense sortable">
+    <thead><tr><th>Subject</th><th>Created</th><th>State</th><th>Granted via</th><th>Scope / note</th></tr></thead>
+    <tbody>
+      {% for row in potential_subjects %}
+      <tr {% if row.resurrectable and scc.allowPrivilegedContainer %}class="row-priv"{% elif row.resurrectable or row.ghost or row.broad or row.unknown %}class="row-warn"{% elif row.baseline %}class="row-baseline"{% endif %}>
+        <td>
+          {{ k.tag(row.kind) }}
+          {% if row.kind == "ServiceAccount" %}
+            <a class="mono" href="/subject/ServiceAccount/{{ row.name }}?namespace={{ row.namespace }}">{{ row.name }}</a>
+            <span class="dim mono">({{ row.namespace }})</span>
+          {% elif row.kind == "User" %}
+            <a class="mono" href="/subject/User/{{ row.name }}">{{ row.name }}</a>
+          {% elif row.kind == "Group" %}
+            <a class="mono" href="/subject/Group/{{ row.name }}">{{ row.name }}</a>
+          {% else %}
+            <span class="mono">{{ row.name }}</span>
+          {% endif %}
+          {% if row.resurrectable %}<span class="badge {% if scc.allowPrivilegedContainer %}badge-priv{% else %}badge-warn{% endif %}">resurrectable</span>{% endif %}
+          {% if row.ghost and not row.resurrectable %}<span class="badge badge-warn">ghost</span>{% endif %}
+          {% if row.broad %}<span class="badge badge-warn">broad</span>{% endif %}
+          {% if row.unknown %}<span class="badge badge-warn">unclassified</span>{% endif %}
+          {% if row.baseline %}<span class="badge badge-sys">baseline</span>{% endif %}
+        </td>
+        <td class="mono" data-sort="{{ row.creation_ts or '' }}">{{ row.creation_ts|humanage }}</td>
+        <td class="mono">{{ row.state }}</td>
+        <td>
+          <span class="mono">{{ row.via }}</span>
+          <span class="dim">({{ row.source }})</span>
+          {% if row.role %}<div class="mono dim">role <a href="/clusterrole/{{ row.role }}">{{ row.role }}</a></div>{% endif %}
+        </td>
+        <td>
+          {{ row.note }}
+          {% if row.current_count is not none %}<span class="dim mono"> · {{ row.current_count }} current</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="dim">{% if potential_subjects_total %}No subjects match the current filters.{% else %}No direct SCC or RBAC use grants found for this SCC.{% endif %}</p>
+  {% endif %}
+</section>
+
+{% endblock %}

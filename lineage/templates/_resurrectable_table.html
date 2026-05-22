@@ -1,0 +1,50 @@
+{# Compact resurrectable-SA table. Caller must pass `items` (list) and may
+   pass `caption` (string) and `note` (string). #}
+{% import "_kind.html" as k %}
+{% if items %}
+<table class="dense sortable"{% if table_id %} id="{{ table_id }}"{% endif %}>
+  {% if caption %}<caption class="dim" style="text-align:left;padding:4px 0;">{{ caption }}</caption>{% endif %}
+  <thead><tr>
+    <th>Principal</th><th>Severity</th><th>Created</th><th>Namespace state</th><th>Surviving grants</th>
+  </tr></thead>
+  <tbody>
+    {% for r in items %}
+    <tr class="{% if r.severity == 'critical' %}row-priv{% elif r.severity == 'high' %}row-warn{% else %}row-ghost{% endif %}">
+      <td class="mono">
+        <a href="/subject/ServiceAccount/{{ r.name }}?namespace={{ r.namespace }}">{{ r.principal }}</a>
+        <span class="badge badge-warn">resurrectable</span>
+        {% if r.has_cluster_admin %}<span class="badge badge-priv">cluster-admin</span>{% endif %}
+        {% if r.has_privileged_scc %}<span class="badge badge-priv">privileged SCC</span>{% endif %}
+        {% if r.auto_created_sa %}<span class="badge badge-warn" title="OpenShift auto-creates this ServiceAccount in every project — recreating the project re-creates the SA with no extra command.">auto-created project SA</span>{% endif %}
+      </td>
+      <td data-sort="{{ r.severity }}">
+        {% if r.severity == 'critical' %}<span class="badge badge-priv">critical</span>
+        {% elif r.severity == 'high' %}<span class="badge badge-priv">high</span>
+        {% elif r.severity == 'medium' %}<span class="badge badge-warn">medium</span>
+        {% else %}<span class="badge badge-info">low</span>{% endif %}
+      </td>
+      <td class="mono" data-sort="{{ r.creation_ts or '' }}">{{ r.creation_ts|humanage }}</td>
+      <td>
+        {% if r.namespace_present %}<span class="badge badge-info">ns present</span> <span class="dim">SA missing</span>
+        {% else %}<span class="badge badge-priv">ns deleted</span> <span class="dim">recreate ns + SA reactivates</span>{% endif %}
+      </td>
+      <td class="mono">
+        {% for g in r.grants %}
+        <div>
+          {{ k.tag(g.kind) }}{{ g.name }}
+          {% if g.role %}→
+            {% if g.role_kind == "ClusterRole" %}<a href="/clusterrole/{{ g.role }}">{% if g.is_privileged_role %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+            {% elif g.role_kind == "Role" and g.namespace %}<a href="/role/{{ g.namespace }}/{{ g.role }}">{% if g.is_privileged_role %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+            {% elif g.role_kind == "SCC" %}<a href="/scc/{{ g.role }}">{% if g.is_privileged_scc %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}{{ g.role }}{% endif %}</a>
+            {% else %}{% if g.is_privileged_role or g.is_privileged_scc %}<span class="badge badge-priv">{{ g.role }}</span>{% else %}<span class="mono">{{ g.role }}</span>{% endif %}{% endif %}
+          {% endif %}
+          <span class="dim">({{ g.via }})</span>
+        </div>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if note %}<p class="dim">{{ note }}</p>{% endif %}
+{% endif %}

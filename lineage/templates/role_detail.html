@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Role {{ name }}{% endblock %}
+{% import "_kind.html" as k %}
+{% import "_back.html" as back %}
+{% import "_rule_cells.html" as rc %}
+{% block content %}
+
+<section>
+  {{ back.back("/roles") }}
+  <h1>
+    {{ k.tag("Role") }}
+    <span class="mono">{{ name }}</span>
+    <span class="dim mono">in <a href="/namespace/{{ namespace }}">{{ namespace }}</a></span>
+  </h1>
+  <p class="dim">Created {{ role.creationTimestamp|humantime }}</p>
+</section>
+
+<section>
+  <h2>Active bindings ({{ bound_by|length }})</h2>
+  {% if bound_by %}
+  <table class="dense sortable">
+    <thead><tr><th>Binding</th><th>Subjects</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for b in bound_by %}
+      <tr>
+        <td class="mono">RoleBinding/{{ b.name }}</td>
+        <td>
+          {% for s in b.subjects %}
+            {{ k.tag(s.kind) }}<a class="mono" href="/subject/{{ s.kind }}/{{ s.name }}{% if s.namespace %}?namespace={{ s.namespace }}{% endif %}">{{ s.name }}</a>{% if s.namespace %} <span class="dim mono">(<a href="/namespace/{{ s.namespace }}">{{ s.namespace }}</a>)</span>{% endif %}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </td>
+        <td class="mono dim" data-sort="{{ b.creationTimestamp or '' }}" title="{{ b.creationTimestamp }}">{{ b.creationTimestamp|humanage }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="dim">No bindings reference this role. It exists but isn't granted to anyone.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Rules ({{ rules|length }})</h2>
+  <p class="lede">
+    <strong>Verbs:</strong>
+    {% for v in summary.verbs %}<span class="mono chip">{{ v }}</span>{% endfor %}
+  </p>
+  <table class="dense">
+    <thead><tr><th>API group</th><th>Resources</th><th>Verbs</th></tr></thead>
+    <tbody>
+      {% for r in rules %}
+      <tr>
+        {{ rc.api_group_cell(r) }}
+        {{ rc.resources_cell(r) }}
+        {{ rc.verbs_cell(r) }}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

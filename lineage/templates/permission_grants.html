@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Role grants{% endblock %}
+{% import "_kind.html" as k %}
+{% import "_markers.html" as m %}
+{% block content %}
+
+<div class="subnav">
+  <a href="/privileged">Privileged</a>
+  <a href="/clusterroles">ClusterRoles</a>
+  <a href="/roles">Roles</a>
+  <a href="/permission-grants" class="active">Role grants</a>
+  <a href="/cross-namespace">Cross-namespace</a>
+  <a href="/who-can">Who can</a>
+  <a href="/aggregated">Aggregated</a>
+</div>
+
+{% if resurrectable_priv %}
+<section class="callout-priv">
+  <h2>Resurrectable ServiceAccount identities ({{ resurrectable_priv|length }})</h2>
+  <p>Critical / high-severity grants whose subject ServiceAccount is gone but the binding is not. Recreating the SA name reactivates the privilege. <a href="/identity-audit?severity=critical#resurrectable">All severities →</a></p>
+  {% with items = resurrectable_priv %}{% include "_resurrectable_table.html" %}{% endwith %}
+</section>
+{% endif %}
+
+<section id="role-grants-list">
+  <h1>Role grants</h1>
+  <p class="lede">Every role bound to a non-baseline subject — users, groups, your service accounts. Newest first. The audit view of <em>what was granted to whom, when</em>.</p>
+
+  <div class="toolbar">
+    <div class="filterbar inline">
+      <a href="/permission-grants#role-grants-list" class="{% if not role_filter %}active{% endif %}">All roles</a>
+      {% for r in all_roles[:12] %}
+      <a href="/permission-grants?role={{ r }}#role-grants-list" class="{% if role_filter == r %}active{% endif %}">{{ r }}</a>
+      {% endfor %}
+    </div>
+    <input type="search" class="search mono" placeholder="filter…"
+           data-filter-target="#grants-table" data-filter-counter="#grants-counter">
+  </div>
+
+  <p class="dim"><span id="grants-counter">{{ grants|length }}</span> grants</p>
+
+  {% if not grants %}
+  <p class="dim">No role grants in this view.</p>
+  {% else %}
+  <table class="dense sortable" id="grants-table">
+    <thead><tr><th>Created</th><th>Role</th><th>Tier</th><th>Subject</th><th>Scope</th><th>Binding</th></tr></thead>
+    <tbody>
+      {% for g in grants %}
+      <tr {% if g.ghost %}class="row-ghost"{% elif g.stranded or g.latent %}class="row-warn"{% elif g.is_privileged %}class="row-priv"{% endif %}>
+        <td class="mono dim" data-sort="{{ g.creation_ts or '' }}" title="{{ g.creation_ts }}">{{ g.creation_ts|humanage }}</td>
+        <td>
+          {% if not g.role_present %}
+            <span class="mono">{{ g.role }}</span>
+            <span class="badge badge-warn">missing role</span>
+          {% elif g.role_kind == "ClusterRole" and g.is_privileged %}
+            <a class="badge badge-priv" href="/clusterrole/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.role_kind == "ClusterRole" %}
+            <a class="mono" href="/clusterrole/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.role_kind == "Role" and g.scope %}
+            <a class="mono" href="/role/{{ g.scope }}/{{ g.role }}">{{ g.role }}</a>
+          {% elif g.is_privileged %}
+            <span class="badge badge-priv">{{ g.role }}</span>
+          {% else %}
+            <span class="mono">{{ g.role }}</span>
+          {% endif %}
+          <span class="dim mono">({{ g.role_kind }})</span>
+        </td>
+        <td class="mono" data-sort="{{ g.tier }}">
+          {% if g.tier >= 5 %}admin++
+          {% elif g.tier >= 4 %}admin
+          {% elif g.tier >= 3 %}edit
+          {% elif g.tier >= 1 %}view
+          {% else %}custom{% endif %}
+        </td>
+        <td>
+          {{ k.tag(g.subject.kind) }}
+          <a class="mono" href="/subject/{{ g.subject.kind }}/{{ g.subject.name }}{% if g.subject.namespace %}?namespace={{ g.subject.namespace }}{% endif %}">{{ g.subject.name }}</a>
+          {% if g.subject.namespace %}<span class="dim mono">({{ g.subject.namespace }})</span>{% endif %}
+          {{ m.badges(g) }}
+        </td>
+        <td class="mono dim">{% if g.scope and g.scope != "cluster" %}<a href="/namespace/{{ g.scope }}">{{ g.scope }}</a>{% else %}cluster-wide{% endif %}</td>
+        <td class="mono">{{ g.binding.kind }}/{{ g.binding.name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

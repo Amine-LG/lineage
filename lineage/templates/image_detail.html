@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Image detail{% endblock %}
+{% import "_thresh.html" as t %}
+{% import "_back.html" as back %}
+{% block content %}
+
+<section>
+  {{ back.back("/images#images-overview") }}
+  <h1>Image detail</h1>
+  <p class="lede">Every visible pod/container using this exact image reference.</p>
+
+  <h2>Full image reference</h2>
+  <pre class="code">{{ image.image }}</pre>
+
+  <div class="ns-stats">
+    <span><strong>{{ image.pod_count }}</strong> pod{{ '' if image.pod_count == 1 else 's' }}</span>
+    <span><strong>{{ namespaces|length }}</strong> namespace{{ '' if namespaces|length == 1 else 's' }}</span>
+    <span><strong>{{ image.registry }}</strong> registry</span>
+    <span>
+      {% if image.classification == "internal" %}<strong>internal</strong>
+      {% elif image.classification == "redhat" %}<strong>Red Hat</strong>
+      {% elif image.classification == "public" %}<strong>public</strong>
+      {% else %}<strong>unclassified</strong>{% endif %}
+      type
+    </span>
+  </div>
+
+  {% if image.resolved_digest %}
+  <h2>Resolved digest</h2>
+  <pre class="code">{{ image.resolved_digest }}</pre>
+  {% elif image.imageID %}
+  <h2>Image ID</h2>
+  <pre class="code">{{ image.imageID }}</pre>
+  {% endif %}
+</section>
+
+{% if imagestream %}
+<section>
+  <h2>ImageStream match</h2>
+  <p class="lede">This image's repository matches an ImageStream visible in the cluster.</p>
+  <table class="dense">
+    <thead><tr><th>Name</th><th>Namespace</th><th>Repository</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="mono">{{ imagestream.name }}</td>
+        <td class="mono"><a href="/namespace/{{ imagestream.namespace }}">{{ imagestream.namespace }}</a></td>
+        <td class="mono dim">{{ imagestream.dockerImageRepository }}</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if digest_siblings %}
+{% set n = digest_siblings|length %}
+<section>
+  <h2>Digest siblings ({{ n }})</h2>
+  <p class="lede">Other resolved digests seen for the same spec tag. Multiple digests means the tag is mutable and the registry has been repushed under a running fleet.</p>
+  {{ t.head(n, "digests") }}
+  <table class="dense">
+    <thead><tr><th>Digest</th><th>Containers</th></tr></thead>
+    <tbody>
+      {% for s in digest_siblings %}
+      <tr>
+        <td class="mono" title="{{ s.digest }}">{{ s.digest[:20] }}…</td>
+        <td class="mono">{{ s.pod_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ t.tail(n) }}
+</section>
+{% endif %}
+
+<section>
+  <h2>Used by pods</h2>
+
+  {% set ns_n = ns_summary|length %}
+  {% if ns_n > 0 %}
+  <h3>By namespace ({{ ns_n }})</h3>
+  {{ t.head(ns_n, "namespaces") }}
+  <table class="dense">
+    <thead><tr><th>Namespace</th><th>Pods</th><th>Containers</th><th>Scope</th></tr></thead>
+    <tbody>
+      {% for r in ns_summary %}
+      <tr {% if r.any_baseline %}class="row-baseline"{% endif %}>
+        <td class="mono"><a href="/namespace/{{ r.namespace }}">{{ r.namespace }}</a></td>
+        <td class="mono">{{ r.pod_count }}</td>
+        <td class="mono">{{ r.container_count }}</td>
+        <td>{% if r.any_baseline %}<span class="badge badge-sys">baseline</span>{% else %}<span class="badge badge-info">yours</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ t.tail(ns_n) }}
+  {% endif %}
+
+  {% set pod_n = pods|length %}
+  <h3>Containers ({{ pod_n }})</h3>
+  {{ t.head(pod_n, "container rows") }}
+  {% if pod_n > 8 %}
+  <div class="toolbar">
+    <input type="search" class="search mono" placeholder="filter pod, namespace, SA, digest..."
+           data-filter-target="#image-pods-table" data-filter-counter="#image-pods-counter">
+  </div>
+  <p class="dim"><span id="image-pods-counter">{{ pod_n }}</span> containers</p>
+  {% endif %}
+  <table class="dense sortable image-detail-containers" id="image-pods-table">
+    <thead><tr>
+      <th>Container</th><th>Pod</th><th>Namespace</th><th>Phase</th><th>ServiceAccount</th><th>SCC</th><th>Scope</th><th>Resolved digest</th><th>Spec image</th>
+    </tr></thead>
+    <tbody>
+      {% for p in pods %}
+      <tr {% if p.baseline_ns %}class="row-baseline"{% endif %}>
+        <td class="mono">{{ p.container }}</td>
+        <td class="mono">{{ p.name }}</td>
+        <td class="mono"><a href="/namespace/{{ p.namespace }}">{{ p.namespace }}</a></td>
+        <td>{{ p.phase or "not reported" }}</td>
+        <td class="mono">
+          {% if p.service_account %}<a href="/subject/ServiceAccount/{{ p.service_account }}?namespace={{ p.namespace }}">{{ p.service_account }}</a>{% else %}—{% endif %}
+        </td>
+        <td class="mono">
+          {% if p.scc %}<a href="/scc/{{ p.scc }}">{{ p.scc }}</a>{% else %}—{% endif %}
+        </td>
+        <td>{% if p.baseline_ns %}<span class="badge badge-sys">baseline</span>{% else %}<span class="badge badge-info">yours</span>{% endif %}</td>
+        <td class="mono image-cell" title="{{ p.resolved_digest or p.imageID }}">{{ p.resolved_digest or p.imageID or "—" }}</td>
+        <td class="mono image-cell" title="{{ p.spec_image }}">{{ p.spec_image|short_image }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {{ t.tail(pod_n) }}
+</section>
+
+{% endblock %}
