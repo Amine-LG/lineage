@@ -50,7 +50,7 @@ IDENTITIES = [
 GROUPS = [
     {"name": "platform-admins", "users": ["alice"],
      "creationTimestamp": "2024-12-01T10:10:00Z"},
-    {"name": "engineers", "users": ["eve", "nina-onboarding"],
+    {"name": "engineers", "users": ["alice", "eve", "nina-onboarding"],
      "creationTimestamp": "2025-01-12T09:10:00Z"},
     {"name": "qa-team", "users": ["dana"],
      "creationTimestamp": "2025-01-12T09:12:00Z"},
@@ -90,6 +90,15 @@ NAMESPACES = [
     {"name": "shared-images", "labels": {},
      "annotations": {"openshift.io/requester": "image-admin"},
      "creationTimestamp": "2025-01-15T13:00:00Z"},
+    # The flagship path: engineers group has a namespaced Role here that lets
+    # group members read secrets. alice is in engineers, so the README's
+    # `alice -> engineers -> secret-readers -> read-secrets -> payments-prod`
+    # example resolves to real objects in this dataset.
+    {"name": "payments-prod",
+     "labels": {"app.kubernetes.io/part-of": "payments"},
+     "annotations": {"openshift.io/requester": "alice",
+                     "openshift.io/display-name": "Payments (prod)"},
+     "creationTimestamp": "2025-03-10T09:00:00Z"},
     {"name": "team-gitops", "labels": {"app.kubernetes.io/managed-by": "ArgoCD"},
      "annotations": {"openshift.io/requester": "alice"},
      "creationTimestamp": "2025-01-18T11:00:00Z"},
@@ -236,6 +245,11 @@ ROLES = [
      "rules": [{"apiGroups": ["batch"],
                 "resources": ["jobs", "cronjobs"], "verbs": ["get", "list", "watch"]}],
      "creationTimestamp": "2025-02-14T09:10:00Z"},
+    {"name": "read-secrets", "namespace": "payments-prod",
+     "labels": {}, "annotations": {},
+     "rules": [{"apiGroups": [""],
+                "resources": ["secrets"], "verbs": ["get", "list"]}],
+     "creationTimestamp": "2025-03-10T09:05:00Z"},
 ]
 
 CLUSTER_ROLE_BINDINGS = [
@@ -304,6 +318,10 @@ ROLE_BINDINGS = [
      "subjects": [{"kind": "Group", "name": "engineers"}],
      "roleRef": {"kind": "ClusterRole", "name": "admin"},
      "creationTimestamp": "2025-01-12T09:36:00Z"},
+    {"name": "secret-readers", "namespace": "payments-prod", "labels": {}, "annotations": {},
+     "subjects": [{"kind": "Group", "name": "engineers"}],
+     "roleRef": {"kind": "Role", "name": "read-secrets"},
+     "creationTimestamp": "2025-03-10T09:10:00Z"},
     {"name": "dana-config-reader", "namespace": "mine-platform", "labels": {}, "annotations": {},
      "subjects": [{"kind": "User", "name": "dana"}],
      "roleRef": {"kind": "Role", "name": "config-reader"},
