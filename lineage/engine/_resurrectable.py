@@ -92,11 +92,37 @@ def _role_tier(role_name, idx=None):
     return 0
 
 
+def _role_has_star_grant(role_name, idx):
+    """True if the ClusterRole's expanded rules grant verbs:["*"] on
+    resources:["*"] in apiGroups:["*"] — i.e. functionally cluster-admin
+    regardless of the role's name. Aggregated roles are checked against
+    their expanded rule set so role aggregation can't hide the grant."""
+    if not role_name or idx is None:
+        return False
+    cr = (idx.get("cluster_roles_by_name") or {}).get(role_name)
+    if cr is None:
+        return False
+    rules, _ = expand_aggregated_role(cr, idx)
+    for r in (rules or []):
+        verbs = r.get("verbs") or []
+        resources = r.get("resources") or []
+        api_groups = r.get("apiGroups") or []
+        if "*" in verbs and "*" in resources and "*" in api_groups:
+            return True
+    return False
+
+
 def _is_privileged_role_name(role_name, idx=None):
     if role_name in PRIVILEGED_ROLES:
         return True
-    return (_scc_name_from_role(role_name) is not None
-            and _role_severity(role_name, idx) in ("critical", "high"))
+    if (_scc_name_from_role(role_name) is not None
+            and _role_severity(role_name, idx) in ("critical", "high")):
+        return True
+    # A ClusterRole whose expanded rules grant *-on-* is functionally
+    # cluster-admin even if its name isn't in PRIVILEGED_ROLES — without
+    # this check, custom or operator-installed cluster-admin-equivalent
+    # roles are invisible to /privileged.
+    return _role_has_star_grant(role_name, idx)
 
 
 def _is_privileged_scc_role(role_name, idx):
