@@ -2533,3 +2533,155 @@ input[type="search"].search {
 html[data-theme="dark"] .posture-enabled  { background: #2b1a08; border-left-color: #f59e0b; }
 html[data-theme="dark"] .posture-disabled { background: #0f2516; border-left-color: #4ade80; }
 html[data-theme="dark"] .posture-unknown  { background: #14202f; }
+
+/* ─── nav search ──────────────────────────────────────────── */
+/* The wrapper is the visible "input slot." The actual <input> has no
+   border/background so the icon and kbd hint sit inline cleanly. */
+.nav-search {
+  position: relative;
+  margin-left: auto;
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  align-self: center;       /* center within the nav row's natural height */
+  height: 28px;
+  padding: 0 8px 0 28px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.nav-search:hover {
+  border-color: var(--border-strong);
+}
+.nav-search:focus-within {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.nav-search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.nav-search:focus-within .nav-search-icon { color: var(--accent); }
+
+.nav-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 0;
+  outline: none;
+}
+.nav-search-input::placeholder { color: var(--fg-dim); }
+/* Hide the browser's default clear button so the kbd hint stays put */
+.nav-search-input::-webkit-search-cancel-button { display: none; }
+
+.nav-search-kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 5px;
+  line-height: 16px;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.nav-search:focus-within .nav-search-kbd,
+.nav-search-input:not(:placeholder-shown) + .nav-search-kbd {
+  display: none;
+}
+
+/* Dropdown sits below the wrapper, full width of it. */
+.nav-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -1px;
+  right: -1px;
+  max-height: 64vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+}
+.nav-search-results[hidden] { display: none; }
+
+.nav-search-empty,
+.nav-search-hint {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  font-family: var(--sans);
+}
+.nav-search-hint code {
+  display: inline-block;
+  background: var(--code-bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin: 2px 4px 2px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg);
+}
+
+.nav-search-group {
+  padding: 5px 12px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+}
+.nav-search-group:first-child { border-top: 0; }
+
+.nav-search-result {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 12px;
+  text-decoration: none !important;
+  color: var(--fg);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.nav-search-result:hover,
+.nav-search-result.selected {
+  background: var(--accent-bg);
+  border-left-color: var(--accent);
+}
+.nav-search-result-display {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-search-result-meta {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Responsive: shrink before hiding so wider laptops still get the bar. */
+@media (max-width: 1280px) { .nav-search { width: 260px; } }
+@media (max-width: 1100px) { .nav-search { width: 200px; } }
+@media (max-width: 960px)  { .nav-search-kbd { display: none; } }
+@media (max-width: 880px)  { .nav-search { display: none; } }

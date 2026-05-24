@@ -17,6 +17,7 @@
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='lineage.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='search.js') }}" defer></script>
 </head>
 <body class="{% if cluster_status.ok and not cluster_status.is_admin %}non-admin{% endif %}">
 <header>
@@ -39,6 +40,24 @@
       <a href="/sccs" {% if request.path == '/sccs' or request.path.startswith('/scc/') %}class="active"{% endif %}>SCCs</a>
       <a href="/images" {% if request.path in ('/images', '/image') %}class="active"{% endif %}>Images</a>
       <a href="/setup" {% if request.path == '/setup' %}class="active"{% endif %}>Setup</a>
+      <div class="nav-search" role="search">
+        <svg class="nav-search-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none"/>
+          <path d="M10.3 10.3 L13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        <input
+          type="search"
+          id="nav-search-input"
+          class="nav-search-input"
+          placeholder="Search"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Search Lineage"
+          aria-controls="nav-search-results"
+          aria-expanded="false">
+        <kbd class="nav-search-kbd" aria-hidden="true">/</kbd>
+        <div id="nav-search-results" class="nav-search-results" role="listbox" hidden></div>
+      </div>
       <form method="post" action="/refresh" class="refresh-form">
         <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
         <button type="submit" class="refresh-btn" title="Refresh cluster data (cache TTL: {{ cache_ttl_label }})">

@@ -12,7 +12,7 @@ python3.11 -m pytest
 Current release suite:
 
 ```text
-436 passed
+480 passed
 ```
 
 The tests cover the mock dataset, relationship engine, UI routes, CLI

@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://amine-lg.github.io/lineage-demo/demo/"><strong>Open Demo</strong></a>
+  <a href="https://amine-lg.github.io/lineage-demo/demo/"><strong>Try it →</strong></a>
 </p>
 
 <p align="center">
@@ -36,6 +36,7 @@
   - [Local Real Cluster](#local-real-cluster)
   - [In-Cluster ServiceAccount](#in-cluster-serviceaccount)
 - [Questions Lineage Answers](#questions-lineage-answers)
+- [Global Search](#global-search)
 - [How To Read Findings](#how-to-read-findings)
 - [Why It Is Useful](#why-it-is-useful)
 - [What It Is Not](#what-it-is-not)
@@ -169,6 +170,20 @@ OpenShift pages and commands:
   review findings?
 - What could Lineage not read, and how should that change trust in the result?
 
+## Global Search
+
+A search box in the top navigation lets you jump to any object by name —
+press <kbd>/</kbd> from anywhere to focus it. It covers Users, Groups,
+ServiceAccounts (by short name or full `system:serviceaccount:` principal),
+Identities, Namespaces, Roles, ClusterRoles, RoleBindings,
+ClusterRoleBindings, SCCs, Workloads (Deployments / DaemonSets / Jobs / …),
+Images, and ImageStreams.
+
+Search is intentionally navigation-only — it is not `who-can`, not access
+analysis, and not a natural-language query. The full design (lazy loading,
+allowlisted fields, what is and isn't indexed) is documented in
+[docs/search.md](docs/search.md).
+
 ## How To Read Findings
 
 The three "can come back" labels are explained in
@@ -246,6 +261,7 @@ Early-v1 release state.
 | How it works | [docs/how-lineage-works.md](docs/how-lineage-works.md) |
 | Image-puller grants | [docs/image-pullers.md](docs/image-pullers.md) |
 | CLI and tests | [docs/cli-and-tests.md](docs/cli-and-tests.md) |
+| Global search | [docs/search.md](docs/search.md) |
 | Tuning | [docs/tuning.md](docs/tuning.md) |
 | Performance | [docs/performance.md](docs/performance.md) |
 

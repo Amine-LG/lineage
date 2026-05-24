@@ -148,7 +148,8 @@ def permission_grants_page():
     if q:
         grants = [g for g in grants
                   if q in (g["subject"].get("name") or "").lower()
-                  or q in g["role"].lower()]
+                  or q in g["role"].lower()
+                  or q in ((g.get("binding") or {}).get("name") or "").lower()]
     # Distinct roles for the filter
     all_roles = sorted({g["role"] for g in engine.role_grants(idx)})
     resurrectable_priv = [r for r in engine.resurrectable_sa_identities(idx)
@@ -264,6 +265,23 @@ def healthz():
     the cluster or the cache, so it is safe to hit on cold start and
     during a slow refresh."""
     return "ok", 200, {"Content-Type": "text/plain"}
+
+
+@app.route("/search-index.json")
+def search_index_json():
+    """Flat list of navigable items for the top-nav jump-to search.
+
+    Built from the already-cached engine index, so no additional cluster
+    reads are triggered by hitting this endpoint. Image inventory is
+    derived in-process from the same idx. The browser is expected to
+    fetch this lazily — only on first focus or '/' shortcut — and rely
+    on it for client-side filtering."""
+    from flask import jsonify
+    idx = engine.index()
+    items = engine.search_index(idx, image_inventory=engine.image_inventory(idx))
+    response = jsonify(items)
+    response.headers["Cache-Control"] = "private, max-age=30"
+    return response
 
 
 @app.route("/cross-namespace")

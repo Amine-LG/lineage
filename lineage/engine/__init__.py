@@ -1121,6 +1121,7 @@ def namespace_reach_for_subject(subject_kind, subject_name, subject_namespace, i
 # Identity audit — see _identity_audit.py                      #
 # ============================================================ #
 from ._identity_audit import _aggregate_bound_ghosts, identity_audit
+from ._search import search_index
 
 
 # ============================================================ #
@@ -1186,6 +1187,7 @@ __all__ = [
     "is_ghost",
     "find_ghost_subjects",
     "identity_audit",
+    "search_index",
     "privileged_subjects",
     "role_grants",
     "duplicate_bindings",
