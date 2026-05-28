@@ -86,6 +86,10 @@ Examples Lineage calls out:
 Lineage separates these from ordinary live access and marks platform
 baseline rows separately when it has enough context.
 
+A step-by-step reproduction of the ClusterRoleBinding case on a non-prod
+cluster is in
+[docs/access-can-come-back.md](docs/access-can-come-back.md).
+
 <p align="center">
   <a href="https://amine-lg.github.io/lineage-demo/video/dev-to-admin.mp4">
     <img src="https://raw.githubusercontent.com/Amine-LG/lineage-demo/main/video/dev-to-admin-readme.webp" alt="Lineage walkthrough showing access that can come back" width="100%"/>
@@ -259,6 +263,7 @@ Early-v1 release state.
 | OpenShift manifests | [deploy/openshift/README.md](deploy/openshift/README.md) |
 | Permissions | [docs/permissions.md](docs/permissions.md) |
 | How it works | [docs/how-lineage-works.md](docs/how-lineage-works.md) |
+| Access that can come back | [docs/access-can-come-back.md](docs/access-can-come-back.md) |
 | Image-puller grants | [docs/image-pullers.md](docs/image-pullers.md) |
 | CLI and tests | [docs/cli-and-tests.md](docs/cli-and-tests.md) |
 | Global search | [docs/search.md](docs/search.md) |
