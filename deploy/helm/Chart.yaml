@@ -1,0 +1,6 @@
+apiVersion: v2
+name: lineage
+version: 0.1.0
+appVersion: latest
+description: Read-only OpenShift access-lineage explainer
+type: application

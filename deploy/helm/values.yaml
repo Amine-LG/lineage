@@ -1,0 +1,43 @@
+# Container image used by the Lineage pod.
+image:
+  repository: ghcr.io/amine-lg/lineage
+  tag: latest
+  pullPolicy: Always
+
+# Namespace where Lineage is installed.
+namespace:
+  name: lineage
+
+# Number of Lineage application pods to run.
+replicaCount: 1
+
+# CPU and memory requested and capped for the Lineage container.
+resources:
+  requests:
+    cpu: 500m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# OpenShift Route used to expose Lineage outside the cluster.
+route:
+  enabled: true
+  host: ""
+  timeout: 120s
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# ServiceAccount used by the Lineage pod and RBAC binding.
+serviceAccount:
+  name: lineage
+
+# Optional exact-name HTPasswd Secret read.
+# Leave disabled unless your cluster uses an HTPasswd IdP and you want those signals.
+htpasswd:
+  enabled: false
+  namespace: openshift-config
+  secretNames:
+    - htpass-secret

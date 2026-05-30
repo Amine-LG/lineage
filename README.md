@@ -34,7 +34,8 @@
   - [Local Setup](#local-setup)
   - [Local Mock Data](#local-mock-data)
   - [Local Real Cluster](#local-real-cluster)
-  - [In-Cluster ServiceAccount](#in-cluster-serviceaccount)
+  - [Helm Install](#helm-install)
+  - [OpenShift Build Install](#openshift-build-install)
 - [Questions Lineage Answers](#questions-lineage-answers)
 - [Global Search](#global-search)
 - [How To Read Findings](#how-to-read-findings)
@@ -98,9 +99,9 @@ cluster is in
 
 ## Quick Start
 
-Lineage has three main runtime modes. Local modes require Python 3.11.
-In-cluster mode builds and runs inside OpenShift, so local Python is not used
-at runtime.
+Lineage has four common runtime modes. Local modes require Python 3.11.
+In-cluster modes run on OpenShift with a dedicated ServiceAccount, so local
+Python is not used at runtime.
 
 ### Local Setup
 
@@ -112,7 +113,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Then choose one local mode. Both serve `http://127.0.0.1:8080` by default.
+Then choose one mode. Local modes serve `http://127.0.0.1:8080` by default.
 
 ### Local Mock Data
 
@@ -134,25 +135,38 @@ python run.py
 Cluster-admin gives the fullest view. Lower-permission accounts still render
 what they can and show degraded visibility on `/setup`.
 
-### In-Cluster ServiceAccount
+### Helm Install
 
-Build inside OpenShift and run as a dedicated read-only ServiceAccount.
+Uses the prebuilt GHCR image and is the fastest in-cluster path. Requires a
+cluster-admin session because the chart installs read-only cluster RBAC.
 
 ```bash
-oc apply -f deploy/openshift/00-namespace.yaml
-oc apply -f deploy/openshift/10-rbac.yaml
-oc apply -f deploy/openshift/15-build.yaml
+oc whoami  # should be a cluster-admin user, for example kubeadmin
 
-oc start-build lineage --from-dir=. --follow -n lineage-incluster
-
-oc apply -f deploy/openshift/20-htpasswd-rbac.yaml   # optional, HTPasswd only
-oc apply -f deploy/openshift/30-deployment.yaml
-oc rollout status deploy/lineage -n lineage-incluster
-
-oc port-forward svc/lineage 8080:8080 -n lineage-incluster
+helm install lineage deploy/helm \
+  --namespace lineage \
+  --create-namespace
 ```
 
-Full install notes: [docs/in-cluster.md](docs/in-cluster.md).
+Add `--set htpasswd.enabled=true` only if your cluster uses HTPasswd and you
+want `/setup` to include those optional signals. Full Helm notes:
+[deploy/helm/README.md](deploy/helm/README.md).
+
+### OpenShift Build Install
+
+Builds the image inside OpenShift from this local checkout, then deploys from
+the internal ImageStream.
+
+```bash
+oc apply -f deploy/openshift/00-namespace.yaml \
+  -f deploy/openshift/10-rbac.yaml \
+  -f deploy/openshift/15-build.yaml
+oc start-build lineage --from-dir=. --follow -n lineage-incluster
+oc apply -f deploy/openshift/30-deployment.yaml
+```
+
+Port-forward, optional Route, optional HTPasswd RBAC, update, and cleanup
+steps are documented in [deploy/openshift/README.md](deploy/openshift/README.md).
 
 ## Questions Lineage Answers
 
@@ -260,6 +274,7 @@ Early-v1 release state.
 | --- | --- |
 | Quickstart | [docs/quickstart.md](docs/quickstart.md) |
 | In-cluster install | [docs/in-cluster.md](docs/in-cluster.md) |
+| Helm chart | [deploy/helm/README.md](deploy/helm/README.md) |
 | OpenShift manifests | [deploy/openshift/README.md](deploy/openshift/README.md) |
 | Permissions | [docs/permissions.md](docs/permissions.md) |
 | How it works | [docs/how-lineage-works.md](docs/how-lineage-works.md) |

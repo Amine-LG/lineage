@@ -1,0 +1,76 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "lineage.fullname" . }}
+rules:
+  # Core resources let Lineage inventory namespaces, ServiceAccounts, and pods.
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - serviceaccounts
+      - pods
+    verbs:
+      - get
+      - list
+  # OpenShift project resources let Lineage classify namespaces by project requester metadata.
+  - apiGroups: ["project.openshift.io"]
+    resources:
+      - projects
+    verbs:
+      - get
+      - list
+  # RBAC resources let Lineage explain which bindings and roles grant access.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs:
+      - get
+      - list
+  # OpenShift user resources let Lineage connect users, identities, and groups.
+  - apiGroups: ["user.openshift.io"]
+    resources:
+      - users
+      - identities
+      - groups
+    verbs:
+      - get
+      - list
+  # OpenShift config resources let Lineage read OAuth IdP config and cluster version metadata.
+  - apiGroups: ["config.openshift.io"]
+    resources:
+      - oauths
+      - clusterversions
+    verbs:
+      - get
+      - list
+  # Batch resources let Lineage include Jobs and CronJobs without slow per-namespace fallbacks.
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+  # OpenShift SCC resources let Lineage show security context constraint grants and usage.
+  - apiGroups: ["security.openshift.io"]
+    resources:
+      - securitycontextconstraints
+    verbs:
+      - get
+      - list
+  # Authorization review resources let Lineage run can-i checks for the current ServiceAccount.
+  - apiGroups: ["authorization.k8s.io"]
+    resources:
+      - selfsubjectaccessreviews
+    verbs:
+      - create
+  # OpenShift image resources let Lineage trace ImageStreams used by workloads.
+  - apiGroups: ["image.openshift.io"]
+    resources:
+      - imagestreams
+    verbs:
+      - get
+      - list

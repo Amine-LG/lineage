@@ -1,0 +1,15 @@
+1. Route URL
+{{- if .Values.route.enabled }}
+{{- if .Values.route.host }}
+   https://{{ .Values.route.host }}
+{{- else }}
+   OpenShift will assign a Route host.
+   Get it with: oc get route {{ include "lineage.fullname" . }} -n {{ .Values.namespace.name }}
+{{- end }}
+{{- else }}
+   Route creation is disabled.
+{{- end }}
+
+2. Lineage is read-only.
+
+3. This chart installs a ClusterRole, so helm install requires cluster-admin.
